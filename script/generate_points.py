@@ -1,11 +1,43 @@
+import argparse
 import random
+import math
 
 
-def generate_cluster(cx, cy, n, spread):
-    return [
-        (random.gauss(cx, spread), random.gauss(cy, spread))
-        for _ in range(n)
-    ]
+def generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n):
+    points = []
+    for _ in range(n):
+        theta = random.uniform(angle_start, angle_end)
+        r = radius + random.gauss(0, thickness)
+        x = r * math.cos(theta)
+        y = r * math.sin(theta)
+        points.append((cx + x, cy + y))
+    return points
+
+
+def generate_elliptical_cluster(cx, cy, a, b, angle, n):
+    points = []
+    for _ in range(n):
+        t = random.uniform(0, 2 * math.pi)
+        r = random.gauss(1, 0.1)
+        x = a * r * math.cos(t)
+        y = b * r * math.sin(t)
+        xr = x * math.cos(angle) - y * math.sin(angle)
+        yr = x * math.sin(angle) + y * math.cos(angle)
+        points.append((cx + xr, cy + yr))
+    return points
+
+
+def generate_elongated_cluster(cx, cy, length, thickness, angle, n):
+    points = []
+    for _ in range(n):
+        t = random.uniform(-length / 2, length / 2)
+        offset = random.gauss(0, thickness)
+        x = t
+        y = offset
+        xr = x * math.cos(angle) - y * math.sin(angle)
+        yr = x * math.sin(angle) + y * math.cos(angle)
+        points.append((cx + xr, cy + yr))
+    return points
 
 
 def generate_noise(n, xmin, xmax, ymin, ymax):
@@ -15,17 +47,71 @@ def generate_noise(n, xmin, xmax, ymin, ymax):
     ]
 
 
-def generate_dataset():
-    points = []
-    points += generate_cluster(0, 0, 100, 0.3)
-    points += generate_cluster(5, 5, 120, 0.4)
-    points += generate_cluster(-4, 4, 80, 0.2)
-    points += generate_noise(40, -10, 10, -10, 10)
+def random_center(xmin, xmax, ymin, ymax, margin=10):
+    return (
+        random.uniform(xmin + margin, xmax - margin),
+        random.uniform(ymin + margin, ymax - margin),
+    )
 
-    with open("../data/input.txt", "w") as f:
+
+def generate_random_cluster(xmin, xmax, ymin, ymax, scale=1.0):
+    cx, cy = random_center(xmin, xmax, ymin, ymax)
+
+    cluster_type = random.choice(
+        ["banana", "ellipse", "elongated", "compact"]
+    )
+
+    if cluster_type == "banana":
+        radius = random.uniform(4, 8) * scale
+        thickness = random.uniform(0.2, 0.8) * scale
+        angle_start = random.uniform(-math.pi, 0)
+        angle_end = angle_start + random.uniform(2, 3)
+        n = int(random.randint(300, 800) * scale)
+        return generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n)
+    elif cluster_type == "ellipse":
+        a = random.uniform(2, 6) * scale
+        b = random.uniform(2, 5) * scale
+        angle = random.uniform(0, math.pi)
+        n = int(random.randint(300, 600) * scale)
+        return generate_elliptical_cluster(cx, cy, a, b, angle, n)
+    elif cluster_type == "elongated":
+        length = random.uniform(12, 18) * scale
+        thickness = random.uniform(0.3, 0.6) * scale
+        angle = random.uniform(-math.pi / 2, math.pi / 2)
+        n = int(random.randint(300, 800) * scale)
+        return generate_elongated_cluster(cx, cy, length, thickness, angle, n)
+    else:
+        a = random.uniform(1, 3) * scale
+        b = random.uniform(1, 3) * scale
+        angle = random.uniform(0, math.pi)
+        n = int(random.randint(200, 300) * scale)
+        return generate_elliptical_cluster(cx, cy, a, b, angle, n)
+
+
+def generate_dataset(file_name, xmin, xmax, ymin, ymax, n_cluster=20):
+    points = []
+    scale = max(xmax - xmin, ymax - ymin) / 50
+
+    for _ in range(n_cluster):
+        points += generate_random_cluster(xmin, xmax, ymin, ymax, scale)
+
+    area = (xmax - xmin) * (ymax - ymin)
+    n_noise = int(area * 0.001)
+    points += generate_noise(n_noise, xmin, xmax, ymin, ymax)
+
+    with open(f"../data/{file_name}.txt", "w") as f:
         for x, y in points:
             f.write(f"{x} {y}\n")
 
 
 if __name__ == "__main__":
-    generate_dataset()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-fn", default="input")
+    parser.add_argument("-xmin", type=float, default=-60)
+    parser.add_argument("-xmax", type=float, default=60)
+    parser.add_argument("-ymin", type=float, default=-60)
+    parser.add_argument("-ymax", type=float, default=60)
+    parser.add_argument("-nc", type=int, default=20)
+    args = parser.parse_args()
+
+    generate_dataset(args.fn, args.xmin, args.xmax, args.ymin, args.ymax, args.nc)

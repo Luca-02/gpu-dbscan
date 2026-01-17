@@ -1,11 +1,13 @@
-from collections import defaultdict
+import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+from collections import defaultdict
 
-def plot_clusters(filename):
-    data = np.loadtxt(filename)
+
+def plot_clusters(file_name):
+    data = np.loadtxt(f"../data/{file_name}.txt")
 
     x = data[:, 0]
     y = data[:, 1]
@@ -27,11 +29,14 @@ def plot_clusters(filename):
     plt.title("DBSCAN")
     plt.xlabel("X")
     plt.ylabel("Y")
-    plt.legend()
     plt.grid(True)
     plt.axis("equal")
     plt.show()
 
 
 if __name__ == "__main__":
-    plot_clusters("../data/output.txt")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-fn", default="output")
+    args = parser.parse_args()
+
+    plot_clusters(args.fn)
