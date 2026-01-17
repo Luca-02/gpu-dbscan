@@ -1,8 +1,8 @@
 #include <cstdio>
 #include <cstdlib>
-#include "parser.h"
+#include "io.h"
 
-int parse_points_file(const char *filename, Point **points) {
+int parse_input_file(const char *filename, double **x, double **y) {
     FILE *file;
     if (fopen_s(&file, filename, "r") != 0) {
         fprintf(stderr, "Error opening file %s\n", filename);
@@ -19,30 +19,44 @@ int parse_points_file(const char *filename, Point **points) {
     printf("Parsed %d points\n", points_count);
     rewind(file);
 
-    *points = (Point *) malloc(points_count * sizeof(Point));
+    *x = (double *) malloc(points_count * sizeof(double));
+    *y = (double *) malloc(points_count * sizeof(double));
 
     int i = 0;
     while (fgets(line, sizeof(line), file) && i < points_count) {
         char *end_ptr;
 
-        const double x = strtod(line, &end_ptr);
+        (*x)[i] = strtod(line, &end_ptr);
         if (end_ptr == line) {
             fprintf(stderr, "Invalid x value at line %d\n", i + 1);
             fclose(file);
             return -1;
         }
 
-        const double y = strtod(end_ptr, &end_ptr);
+       (*y)[i] = strtod(end_ptr, &end_ptr);
         if (end_ptr == line) {
             fprintf(stderr, "Invalid y value at line %d\n", i + 1);
             fclose(file);
             return -1;
         }
 
-        init_point(&(*points)[i], x, y);
         i++;
     }
 
     fclose(file);
     return points_count;
+}
+
+void write_output_file(const char *filename, const double *x, const double *y, const int *cluster, const int n) {
+    FILE *file;
+    if (fopen_s(&file, filename, "w") != 0) {
+        fprintf(stderr, "Error opening file %s\n", filename);
+        return;
+    }
+
+    for (int i = 0; i < n; i++) {
+        fprintf(file, "%lf %lf %d\n", x[i], y[i], cluster[i]);
+    }
+
+    fclose(file);
 }

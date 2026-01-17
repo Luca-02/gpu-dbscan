@@ -2,7 +2,7 @@ init:
 	cd script && python -m venv .venv && call .venv/Scripts/activate && pip install -r requirements.txt
 
 FN_INPUT ?= input
-NC ?= 10
+NC ?= 30
 XMIN ?= -250
 XMAX ?= 250
 YMIN ?= -250

@@ -1,9 +1,24 @@
 import argparse
-import random
 import math
+import random
 
 
 def generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n):
+    """
+    Generates a curved cluster of points.
+    Points are sampled along a circular arc between two angles.
+    Gaussian noise is applied to the radius to control the thickness
+    of the cluster.
+
+    :param cx: X coordinate of the cluster center
+    :param cy: Y coordinate of the cluster center
+    :param radius: Base radius of the arc
+    :param angle_start: Starting angle of the arc
+    :param angle_end: Ending angle of the arc
+    :param thickness: Standard deviation of radial noise
+    :param n: Number of points to generate
+    :return: List of (x, y) points forming a banana-shaped cluster
+    """
     points = []
     for _ in range(n):
         theta = random.uniform(angle_start, angle_end)
@@ -15,6 +30,19 @@ def generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n
 
 
 def generate_elliptical_cluster(cx, cy, a, b, angle, n):
+    """
+    Generates an elliptical cluster of points with rotation.
+    Points are sampled from an ellipse, scaled by Gaussian noise,
+    rotated by a given angle, and translated to the desired center.
+
+    :param cx: X coordinate of the cluster center
+    :param cy: Y coordinate of the cluster center
+    :param a: Semi-major axis of the ellipse
+    :param b: Semi-minor axis of the ellipse
+    :param angle: Rotation angle of the ellipse
+    :param n: Number of points to generate
+    :return: List of (x, y) points forming an elliptical cluster
+    """
     points = []
     for _ in range(n):
         t = random.uniform(0, 2 * math.pi)
@@ -28,6 +56,19 @@ def generate_elliptical_cluster(cx, cy, a, b, angle, n):
 
 
 def generate_elongated_cluster(cx, cy, length, thickness, angle, n):
+    """
+    Generates an elongated cluster of points.
+    Points are distributed along a main axis with Gaussian noise
+    applied perpendicularly, then rotated and translated.
+
+    :param cx: X coordinate of the cluster center
+    :param cy: Y coordinate of the cluster center
+    :param length: Total length of the cluster
+    :param thickness: Standard deviation of perpendicular noise
+    :param angle: Rotation angle of the cluster
+    :param n: Number of points to generate
+    :return: List of (x, y) points forming an elongated cluster
+    """
     points = []
     for _ in range(n):
         t = random.uniform(-length / 2, length / 2)
@@ -41,6 +82,16 @@ def generate_elongated_cluster(cx, cy, length, thickness, angle, n):
 
 
 def generate_noise(n, xmin, xmax, ymin, ymax):
+    """
+    Generates uniformly distributed random noise points.
+
+    :param n: Number of noise points
+    :param xmin: Minimum x coordinate
+    :param xmax: Maximum x coordinate
+    :param ymin: Minimum y coordinate
+    :param ymax: Maximum y coordinate
+    :return: List of (x, y) noise points
+    """
     return [
         (random.uniform(xmin, xmax), random.uniform(ymin, ymax))
         for _ in range(n)
@@ -48,6 +99,17 @@ def generate_noise(n, xmin, xmax, ymin, ymax):
 
 
 def random_center(xmin, xmax, ymin, ymax, margin=10):
+    """
+    Generates a random center point inside given bounds,
+    keeping a margin from the borders.
+
+    :param xmin: Minimum x coordinate
+    :param xmax: Maximum x coordinate
+    :param ymin: Minimum y coordinate
+    :param ymax: Maximum y coordinate
+    :param margin: Minimum distance from the borders
+    :return: Tuple (cx, cy) representing the center point
+    """
     return (
         random.uniform(xmin + margin, xmax - margin),
         random.uniform(ymin + margin, ymax - margin),
@@ -55,6 +117,16 @@ def random_center(xmin, xmax, ymin, ymax, margin=10):
 
 
 def generate_random_cluster(xmin, xmax, ymin, ymax, scale=1.0):
+    """
+    Generates a randomly selected cluster type within the given bounds.
+
+    :param xmin: Minimum x coordinate of the dataset
+    :param xmax: Maximum x coordinate of the dataset
+    :param ymin: Minimum y coordinate of the dataset
+    :param ymax: Maximum y coordinate of the dataset
+    :param scale: Scaling factor for cluster size and density
+    :return: List of (x, y) points forming the cluster
+    """
     cx, cy = random_center(xmin, xmax, ymin, ymax)
 
     cluster_type = random.choice(
@@ -89,6 +161,18 @@ def generate_random_cluster(xmin, xmax, ymin, ymax, scale=1.0):
 
 
 def generate_dataset(file_name, xmin, xmax, ymin, ymax, n_cluster=20):
+    """
+    Generates a synthetic dataset composed of multiple clusters
+    and background noise, then saves it to a file.
+
+    :param file_name: Name of the output file
+    :param xmin: Minimum x coordinate
+    :param xmax: Maximum x coordinate
+    :param ymin: Minimum y coordinate
+    :param ymax: Maximum y coordinate
+    :param n_cluster: Number of clusters to generate
+    :return: None
+    """
     points = []
     scale = max(xmax - xmin, ymax - ymin) / 50
 

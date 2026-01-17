@@ -4,9 +4,9 @@ project(gpu-scan CXX CUDA)
 set(CMAKE_CUDA_STANDARD 20)
 
 add_executable(gpu-scan src/main.cu
-        src/parser.cpp
-        src/structure/point.cpp
-        src/dbscan.cpp
+        src/io.cpp
+        src/cpu_dbscan.cpp
+        src/dbscan.h
 )
 
 set_target_properties(gpu-scan PROPERTIES

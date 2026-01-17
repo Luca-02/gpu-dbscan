@@ -1,12 +1,18 @@
 import argparse
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from collections import defaultdict
-
 
 def plot_clusters(file_name):
+    """
+    Plots clustered 2D points from a text file.
+    Points with a negative cluster label are treated as outliers
+    and plotted in black. All other points are colored by cluster.
+
+    :param file_name: Name of the input file, located in the ../data/ directory
+    """
     data = np.loadtxt(f"../data/{file_name}.txt")
 
     x = data[:, 0]
@@ -21,10 +27,10 @@ def plot_clusters(file_name):
 
     for cluster_id, points in cluster_dict.items():
         points = np.array(points)
-        if cluster_id == -1:
-            plt.scatter(points[:, 0], points[:, 1], c="black", s=20, label="Outlier")
+        if cluster_id < 0:
+            plt.scatter(points[:, 0], points[:, 1], c="black", s=1, label="Outlier")
         else:
-            plt.scatter(points[:, 0], points[:, 1], s=20, label=f"Cluster {cluster_id}")
+            plt.scatter(points[:, 0], points[:, 1], s=1, label=f"Cluster {cluster_id}")
 
     plt.title("DBSCAN")
     plt.xlabel("X")
