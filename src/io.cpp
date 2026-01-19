@@ -1,7 +1,20 @@
 #include <cstdio>
 #include <cstdlib>
 #include "io.h"
+#include "helper.h"
 
+
+static void cleanup(FILE *file, double **x, double **y) {
+    if (*x) {
+        free(*x);
+        *x = nullptr;
+    }
+    if (*y) {
+        free(*y);
+        *y = nullptr;
+    }
+    if (file) fclose(file);
+}
 
 /**
  * @brief Parses a CSV input file containing points in 2D space.
@@ -11,65 +24,77 @@
  * @param filename The path to the CSV input file.
  * @param x Pointer to a double pointer where the x-coordinates array will be stored.
  * @param y Pointer to a double pointer where the y-coordinates array will be stored.
+ * @param n Pointer to a size_t where the number of points will be stored.
  * @return The number of points read from the file on success, or -1 on error.
  *
  * @note Memory for x and y arrays is dynamically allocated using malloc and must be freed by the caller.
  */
-int parse_input_file(const char *filename, double **x, double **y) {
-    FILE *file;
-    if (fopen_s(&file, filename, "r") != 0) {
+bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
+    *x = nullptr, *y = nullptr;
+    *n = 0;
+    char line[512];
+    FILE *file = fopen(filename, "r");
+    if (!file) {
         fprintf(stderr, "Error opening file %s\n", filename);
-        return -1;
+        return false;
     }
-
-    int points_count = 0;
-    char line[256];
 
     // Skip header
     if (!fgets(line, sizeof(line), file)) {
         fprintf(stderr, "Empty file or failed to read header\n");
-        fclose(file);
-        return -1;
+        cleanup(file, x, y);
+        return false;
     }
 
+    // Count lines
     while (fgets(line, sizeof(line), file)) {
-        points_count++;
+        (*n)++;
     }
 
-    printf("Parsed %d points\n", points_count);
+    if (*n == 0) {
+        fprintf(stderr, "No data found in file %s\n", filename);
+        cleanup(file, x, y);
+        return false;
+    }
+
+    printf("Parsed %zu points\n", *n);
     rewind(file);
-    // Skip header
-    fgets(line, sizeof(line), file);
+    fgets(line, sizeof(line), file); // skip header
 
-    *x = (double *) malloc(points_count * sizeof(double));
-    *y = (double *) malloc(points_count * sizeof(double));
+    *x = (double *) malloc_s(*n * sizeof(double));
+    *y = (double *) malloc_s(*n * sizeof(double));
+    if (!*x || !*y) {
+        cleanup(file, x, y);
+        return false;
+    }
 
-    int i = 0;
-    while (fgets(line, sizeof(line), file) && i < points_count) {
-        char *end_ptr;
+    size_t i = 0;
+    while (fgets(line, sizeof(line), file) && i < *n) {
+        char *end;
 
-        (*x)[i] = strtod(line, &end_ptr);
-        if (*end_ptr != ',') {
-            fprintf(stderr, "Expected ',' after x at line %d\n", i + 2);
-            fclose(file);
-            return -1;
+        (*x)[i] = strtod(line, &end);
+        if (*end != ',') {
+            fprintf(stderr, "Expected ',' after x at line %zu\n", i + 2);
+            cleanup(file, x, y);
+            return false;
         }
 
         // Skip comma
-        end_ptr++;
+        end++;
 
-        (*y)[i] = strtod(end_ptr, &end_ptr);
-        if (end_ptr == line) {
-            fprintf(stderr, "Invalid y value at line %d\n", i + 1);
-            fclose(file);
-            return -1;
+        const char *start = end;
+        (*y)[i] = strtod(start, &end);
+        if (start == end) {
+            fprintf(stderr, "Invalid y value at line %zu\n", i + 1);
+            cleanup(file, x, y);
+            return false;
         }
 
         i++;
     }
 
     fclose(file);
-    return points_count;
+    return true;
 }
 
 
@@ -86,9 +111,9 @@ int parse_input_file(const char *filename, double **x, double **y) {
  *
  * @note The arrays x, y, and cluster must have at least n elements.
  */
-void write_output_file(const char *filename, const double *x, const double *y, const int *cluster, const int n) {
-    FILE *file;
-    if (fopen_s(&file, filename, "w") != 0) {
+void write_output_file(const char *filename, const double *x, const double *y, const int *cluster, const size_t n) {
+    FILE *file = fopen(filename, "w");
+    if (!file) {
         fprintf(stderr, "Error opening file %s\n", filename);
         return;
     }
@@ -96,7 +121,7 @@ void write_output_file(const char *filename, const double *x, const double *y, c
     // Write header
     fprintf(file, "x,y,cluster\n");
 
-    for (int i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++) {
         fprintf(file, "%.15g,%.15g,%d\n", x[i], y[i], cluster[i]);
     }
 

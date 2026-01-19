@@ -1,14 +1,41 @@
 #include <queue>
 #include "dbscan.h"
+#include "helper.h"
 
 
-void compute_adj_list(int **cum_deg, int **adj, const double *x, const double *y, const int n, const double eps) {
-    *cum_deg = (int *) malloc((n + 1) * sizeof(int));
+static void free_adj_resources(size_t **cum_deg, size_t **adj, size_t **offset, size_t **degree) {
+    if (cum_deg && *cum_deg) {
+        free(*cum_deg);
+        *cum_deg = nullptr;
+    }
+    if (adj && *adj) {
+        free(*adj);
+        *adj = nullptr;
+    }
+    if (offset && *offset) {
+        free(*offset);
+        *offset = nullptr;
+    }
+    if (*degree) {
+        free(*degree);
+        *degree = nullptr;
+    }
+}
 
-    int *degree = (int *) calloc(n, sizeof(int));
-    int total_neighbors = 0;
-    for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
+static bool compute_adj_list(
+    size_t **cum_deg,
+    size_t **adj,
+    const double *x,
+    const double *y,
+    const size_t n,
+    const double eps
+) {
+    size_t *degree = (size_t *) calloc_s(n, sizeof(size_t));
+    if (!degree) return false;
+
+    size_t total_neighbors = 0;
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = i + 1; j < n; j++) {
             if (is_eps_neighbor(x[i], y[i], x[j], y[j], eps)) {
                 degree[i]++;
                 degree[j]++;
@@ -17,13 +44,24 @@ void compute_adj_list(int **cum_deg, int **adj, const double *x, const double *y
         total_neighbors += degree[i];
     }
 
+    *cum_deg = (size_t *) malloc_s((n + 1) * sizeof(size_t));
+    if (!*cum_deg) {
+        free_adj_resources(cum_deg, nullptr, nullptr, &degree);
+        return false;
+    }
+
     (*cum_deg)[0] = 0;
-    for (int i = 1; i <= n; i++) {
+    for (size_t i = 1; i <= n; i++) {
         (*cum_deg)[i] = (*cum_deg)[i - 1] + degree[i - 1];
     }
 
-    *adj = (int *) malloc(total_neighbors * sizeof(int));
-    int *offset = (int *) calloc(n, sizeof(int));
+    *adj = (size_t *) malloc_s(total_neighbors * sizeof(size_t));
+    size_t *offset = (size_t *) calloc_s(n, sizeof(size_t));
+    if (!*adj || !offset) {
+        free_adj_resources(cum_deg, adj, &offset, &degree);
+        return false;
+    }
+
     for (int i = 0; i < n; i++) {
         for (int j = i + 1; j < n; j++) {
             if (is_eps_neighbor(x[i], y[i], x[j], y[j], eps)) {
@@ -33,25 +71,56 @@ void compute_adj_list(int **cum_deg, int **adj, const double *x, const double *y
         }
     }
 
-    free(degree);
-    free(offset);
+    free_adj_resources(nullptr, nullptr, &offset, &degree);
+    return true;
 }
 
-void dbscan_cpu(int *cluster, const double *x, const double *y, const int n, const double eps, const int min_pts) {
-    for (int i = 0; i < n; i++) {
+static void free_dbscan_resources(size_t **cum_deg, size_t **adj, size_t **queue) {
+    if (*cum_deg) {
+        free(*cum_deg);
+        *cum_deg = nullptr;
+    }
+    if (*adj) {
+        free(*adj);
+        *adj = nullptr;
+    }
+    if (queue && *queue) {
+        free(*queue);
+        *queue = nullptr;
+    }
+}
+
+void dbscan_cpu(
+    int *cluster,
+    const double *x,
+    const double *y,
+    const size_t n,
+    const double eps,
+    const size_t min_pts
+) {
+    for (size_t i = 0; i < n; i++) {
         cluster[i] = UNDEFINED;
     }
 
-    int *cum_deg, *adj;
-    compute_adj_list(&cum_deg, &adj, x, y, n, eps);
+    size_t *cum_deg = nullptr;
+    size_t *adj = nullptr;
+    if (!compute_adj_list(&cum_deg, &adj, x, y, n, eps)) {
+        fprintf(stderr, "Failed to compute adjacency list\n");
+        free_dbscan_resources(&cum_deg, &adj, nullptr);
+        return;
+    }
 
     int cluster_id = 0;
-    int *queue = (int *) malloc(n * sizeof(int));
+    size_t *queue = (size_t *) malloc_s(n * sizeof(size_t));
+    if (!queue) {
+        free_dbscan_resources(&cum_deg, &adj, &queue);
+        return;
+    }
 
-    for (int p = 0; p < n; p++) {
+    for (size_t p = 0; p < n; p++) {
         if (cluster[p] != UNDEFINED) continue;
 
-        const int deg = cum_deg[p + 1] - cum_deg[p];
+        const size_t deg = cum_deg[p + 1] - cum_deg[p];
 
         if (!is_core(deg, min_pts)) {
             cluster[p] = NOISE;
@@ -60,22 +129,21 @@ void dbscan_cpu(int *cluster, const double *x, const double *y, const int n, con
 
         // Assign cluster to core point
         cluster[p] = cluster_id;
-        int head = 0;
-        int tail = 0;
+        size_t head = 0, tail = 0;
         queue[tail++] = p;
 
         while (head < tail) {
-            const int q = queue[head++];
+            const size_t q = queue[head++];
 
-            const int start = cum_deg[q];
-            const int end = cum_deg[q + 1];
-            const int q_deg = end - start;
+            const size_t start = cum_deg[q];
+            const size_t end = cum_deg[q + 1];
+            const size_t q_deg = end - start;
 
             // Border points
             if (!is_core(q_deg, min_pts)) continue;
 
-            for (int k = start; k < end; k++) {
-                const int neighbor = adj[k];
+            for (size_t k = start; k < end; k++) {
+                const size_t neighbor = adj[k];
                 if (cluster[neighbor] == UNDEFINED || cluster[neighbor] == NOISE) {
                     cluster[neighbor] = cluster_id;
                     queue[tail++] = neighbor;
@@ -86,7 +154,5 @@ void dbscan_cpu(int *cluster, const double *x, const double *y, const int n, con
         cluster_id++;
     }
 
-    free(cum_deg);
-    free(adj);
-    free(queue);
+    free_dbscan_resources(&cum_deg, &adj, &queue);
 }

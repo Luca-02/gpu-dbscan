@@ -37,30 +37,30 @@
  *
  * @note The point itself is counted in the degree.
  */
-HD inline bool is_core(const int deg, const int min_pts) {
+HD inline bool is_core(const size_t deg, const size_t min_pts) {
     return deg >= min_pts;
 }
 
 /**
  * @brief Checks if two points are epsilon neighbors based on their coordinates and the epsilon distance.
  *
- * @param ax The x coordinate of the first point.
- * @param ay The y coordinate of the first point.
- * @param bx The x coordinate of the second point.
- * @param by The y coordinate of the second point.
+ * @param x1 The x coordinate of the first point.
+ * @param y1 The y coordinate of the first point.
+ * @param x2 The x coordinate of the second point.
+ * @param y2 The y coordinate of the second point.
  * @param eps The epsilon distance.
  * @return True if the points are epsilon neighbors, false otherwise.
  *
  * @note This implementation avoids the use of sqrt by checking the squared distance instead.
  */
-HD inline bool is_eps_neighbor(const double ax, const double ay, const double bx, const double by, const double eps) {
-    const double dx = ax - bx;
-    const double dy = ay - by;
+HD inline bool is_eps_neighbor(const double x1, const double y1, const double x2, const double y2, const double eps) {
+    const double dx = x2 - x1;
+    const double dy = y2 - y1;
     return dx * dx + dy * dy <= eps * eps;
 }
 
-void dbscan_cpu(int *cluster, const double *x, const double *y, int n, double eps, int min_pts);
+void dbscan_cpu(int *cluster, const double *x, const double *y, size_t n, double eps, size_t min_pts);
 
-void dbscan_gpu(int *cluster, const double *x, const double *y, int n, double eps, int min_pts);
+void dbscan_gpu(int *cluster, const double *x, const double *y, size_t n, double eps, size_t min_pts);
 
 #endif

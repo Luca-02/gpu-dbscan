@@ -8,6 +8,7 @@ add_executable(gpu-scan src/main.cu
         src/cpu_dbscan.cpp
         src/gpu_dbscan.cu
         src/dbscan.h
+        src/helper.h
 )
 
 set_target_properties(gpu-scan PROPERTIES
