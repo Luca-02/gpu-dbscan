@@ -1,4 +1,5 @@
 import argparse
+import csv
 import math
 import random
 
@@ -183,9 +184,11 @@ def generate_dataset(file_name, xmin, xmax, ymin, ymax, n_cluster=20):
     n_noise = int(area * 0.001)
     points += generate_noise(n_noise, xmin, xmax, ymin, ymax)
 
-    with open(f"../data/{file_name}.txt", "w") as f:
+    with open(f"../data/{file_name}.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["x", "y"])
         for x, y in points:
-            f.write(f"{x} {y}\n")
+            writer.writerow([f"{x:.15g}", f"{y:.15g}"])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 #include <queue>
-#include "cpu_dbscan.h"
 #include "dbscan.h"
 
 
@@ -38,7 +37,7 @@ void compute_adj_list(int **cum_deg, int **adj, const double *x, const double *y
     free(offset);
 }
 
-void dbscan(int *cluster, const double *x, const double *y, const int n, const double eps, const int min_pts) {
+void dbscan_cpu(int *cluster, const double *x, const double *y, const int n, const double eps, const int min_pts) {
     for (int i = 0; i < n; i++) {
         cluster[i] = UNDEFINED;
     }

@@ -13,11 +13,17 @@ def plot_clusters(file_name):
 
     :param file_name: Name of the input file, located in the ../data/ directory
     """
-    data = np.loadtxt(f"../data/{file_name}.txt")
+    data = np.loadtxt(f"../data/{file_name}.csv", delimiter=",", skiprows=1)
 
     x = data[:, 0]
     y = data[:, 1]
-    clusters = data[:, 2].astype(int)
+
+    # If the file has 3 column use cluster column, otherwise set default cluster to -1
+    if data.shape[1] >= 3:
+        clusters = data[:, 2].astype(int)
+    else:
+        clusters = -1 * np.ones(x.shape, dtype=int)
+
     cluster_dict = defaultdict(list)
 
     for xi, yi, ci in zip(x, y, clusters):

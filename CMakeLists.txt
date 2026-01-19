@@ -6,6 +6,7 @@ set(CMAKE_CUDA_STANDARD 20)
 add_executable(gpu-scan src/main.cu
         src/io.cpp
         src/cpu_dbscan.cpp
+        src/gpu_dbscan.cu
         src/dbscan.h
 )
 

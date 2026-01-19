@@ -2,7 +2,7 @@
 #include <ctime>
 #include "io.h"
 #include "dbscan.h"
-#include "cpu_dbscan.h"
+
 
 int main() {
     double *x, *y;
@@ -15,7 +15,7 @@ int main() {
 
     int *cluster = (int *) malloc(n * sizeof(double));
     const clock_t start = clock();
-    dbscan(cluster, x, y, n, EPSILON, MIN_PTS);
+    dbscan_cpu(cluster, x, y, n, EPSILON, MIN_PTS);
     const clock_t end = clock();
 
     const double elapsed = (double) (end - start) / CLOCKS_PER_SEC;
