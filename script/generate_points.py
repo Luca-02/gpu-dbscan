@@ -181,7 +181,7 @@ def generate_dataset(file_name, xmin, xmax, ymin, ymax, n_cluster=20):
         points += generate_random_cluster(xmin, xmax, ymin, ymax, scale)
 
     area = (xmax - xmin) * (ymax - ymin)
-    n_noise = int(area * 0.001)
+    n_noise = int(area * 0.00001)
     points += generate_noise(n_noise, xmin, xmax, ymin, ymax)
 
     with open(f"../data/{file_name}.csv", "w", newline="") as f:
@@ -200,5 +200,4 @@ if __name__ == "__main__":
     parser.add_argument("-ymax", type=float, default=60)
     parser.add_argument("-nc", type=int, default=20)
     args = parser.parse_args()
-
     generate_dataset(args.fn, args.xmin, args.xmax, args.ymin, args.ymax, args.nc)

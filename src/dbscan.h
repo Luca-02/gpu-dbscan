@@ -2,7 +2,8 @@
 #define DBSCAN_H
 
 #define INPUT_FILE "../data/input.csv"
-#define OUTPUT_FILE "../data/output.csv"
+#define OUTPUT_FILE_CPU "../data/output_cpu.csv"
+#define OUTPUT_FILE_GPU "../data/output_gpu.csv"
 
 /**
  * @brief The maximum Euclidean distance between two points to consider them neighbors.
@@ -14,13 +15,9 @@
 #define MIN_PTS 30
 
 /**
- * @brief A point that has not yet been processed.
+ * @brief Default cluster id.
  */
-#define UNDEFINED (-2)
-/**
- * @brief A point with less than MIN_PTS neighbors and is not part of a dense region.
- */
-#define NOISE (-1)
+#define NO_CLUSTER 0
 
 #ifdef __CUDACC__
 #define HD __host__ __device__
@@ -38,7 +35,7 @@
  * @note The point itself is counted in the degree.
  */
 HD inline bool is_core(const size_t deg, const size_t min_pts) {
-    return deg >= min_pts;
+    return deg + 1 >= min_pts;
 }
 
 /**
@@ -53,14 +50,36 @@ HD inline bool is_core(const size_t deg, const size_t min_pts) {
  *
  * @note This implementation avoids the use of sqrt by checking the squared distance instead.
  */
-HD inline bool is_eps_neighbor(const double x1, const double y1, const double x2, const double y2, const double eps) {
+HD inline bool is_eps_neighbor(
+    const double x1,
+    const double y1,
+    const double x2,
+    const double y2,
+    const double eps
+) {
     const double dx = x2 - x1;
     const double dy = y2 - y1;
     return dx * dx + dy * dy <= eps * eps;
 }
 
-void dbscan_cpu(int *cluster, const double *x, const double *y, size_t n, double eps, size_t min_pts);
+void dbscan_cpu(
+    int *cluster,
+    size_t *cluster_count,
+    const double *x,
+    const double *y,
+    size_t n,
+    double eps,
+    size_t min_pts
+);
 
-void dbscan_gpu(int *cluster, const double *x, const double *y, size_t n, double eps, size_t min_pts);
+void dbscan_gpu(
+    int *cluster,
+    size_t *cluster_count,
+    const double *x,
+    const double *y,
+    size_t n,
+    double eps,
+    size_t min_pts
+);
 
 #endif

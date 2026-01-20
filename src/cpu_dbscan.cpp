@@ -2,6 +2,17 @@
 #include "dbscan.h"
 #include "helper.h"
 
+/**
+ * @brief Initialize the cluster labels to default 0.
+ *
+ * @param cluster Array of cluster labels.
+ * @param n Number of points.
+ */
+static void init_clusters(int *cluster, const size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        cluster[i] = NO_CLUSTER;
+    }
+}
 
 static void free_adj_resources(size_t **cum_deg, size_t **adj, size_t **offset, size_t **degree) {
     if (cum_deg && *cum_deg) {
@@ -92,25 +103,24 @@ static void free_dbscan_resources(size_t **cum_deg, size_t **adj, size_t **queue
 
 void dbscan_cpu(
     int *cluster,
+    size_t *cluster_count,
     const double *x,
     const double *y,
     const size_t n,
     const double eps,
     const size_t min_pts
 ) {
-    for (size_t i = 0; i < n; i++) {
-        cluster[i] = UNDEFINED;
-    }
-
     size_t *cum_deg = nullptr;
     size_t *adj = nullptr;
+    init_clusters(cluster, n);
+
     if (!compute_adj_list(&cum_deg, &adj, x, y, n, eps)) {
         fprintf(stderr, "Failed to compute adjacency list\n");
         free_dbscan_resources(&cum_deg, &adj, nullptr);
         return;
     }
 
-    int cluster_id = 0;
+    int cluster_id = NO_CLUSTER;
     size_t *queue = (size_t *) malloc_s(n * sizeof(size_t));
     if (!queue) {
         free_dbscan_resources(&cum_deg, &adj, &queue);
@@ -118,17 +128,12 @@ void dbscan_cpu(
     }
 
     for (size_t p = 0; p < n; p++) {
-        if (cluster[p] != UNDEFINED) continue;
-
         const size_t deg = cum_deg[p + 1] - cum_deg[p];
 
-        if (!is_core(deg, min_pts)) {
-            cluster[p] = NOISE;
-            continue;
-        }
+        if (cluster[p] != NO_CLUSTER || !is_core(deg, min_pts)) continue;
 
         // Assign cluster to core point
-        cluster[p] = cluster_id;
+        cluster[p] = ++cluster_id;
         size_t head = 0, tail = 0;
         queue[tail++] = p;
 
@@ -144,15 +149,15 @@ void dbscan_cpu(
 
             for (size_t k = start; k < end; k++) {
                 const size_t neighbor = adj[k];
-                if (cluster[neighbor] == UNDEFINED || cluster[neighbor] == NOISE) {
+                if (cluster[neighbor] == NO_CLUSTER) {
                     cluster[neighbor] = cluster_id;
                     queue[tail++] = neighbor;
                 }
             }
         }
-
-        cluster_id++;
     }
+
+    *cluster_count = cluster_id;
 
     free_dbscan_resources(&cum_deg, &adj, &queue);
 }

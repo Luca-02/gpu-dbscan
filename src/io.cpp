@@ -3,7 +3,6 @@
 #include "io.h"
 #include "helper.h"
 
-
 static void cleanup(FILE *file, double **x, double **y) {
     if (*x) {
         free(*x);
@@ -57,7 +56,6 @@ bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
         return false;
     }
 
-    printf("Parsed %zu points\n", *n);
     rewind(file);
     fgets(line, sizeof(line), file); // skip header
 
@@ -96,7 +94,6 @@ bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
     fclose(file);
     return true;
 }
-
 
 /**
  * @brief Writes a CSV output file containing points and their assigned cluster IDs.

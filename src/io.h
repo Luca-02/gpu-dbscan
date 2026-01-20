@@ -1,7 +1,6 @@
 #ifndef IO_H
 #define IO_H
 
-
 /**
  * @brief Parses a CSV input file and extracts x and y coordinates.
  * @param filename Input CSV file name.
