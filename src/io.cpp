@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "io.h"
-#include "helper.h"
+#include "common.h"
 
 static void cleanup(FILE *file, double **x, double **y) {
     if (*x) {
@@ -23,12 +23,12 @@ static void cleanup(FILE *file, double **x, double **y) {
  * @param filename The path to the CSV input file.
  * @param x Pointer to a double pointer where the x-coordinates array will be stored.
  * @param y Pointer to a double pointer where the y-coordinates array will be stored.
- * @param n Pointer to a size_t where the number of points will be stored.
+ * @param n Pointer to where the number of points will be stored.
  * @return The number of points read from the file on success, or -1 on error.
  *
  * @note Memory for x and y arrays is dynamically allocated using malloc and must be freed by the caller.
  */
-bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
+bool parse_input_file(const char *filename, double **x, double **y, int *n) {
     *x = nullptr, *y = nullptr;
     *n = 0;
     char line[512];
@@ -66,13 +66,13 @@ bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
         return false;
     }
 
-    size_t i = 0;
+    int i = 0;
     while (fgets(line, sizeof(line), file) && i < *n) {
         char *end;
 
         (*x)[i] = strtod(line, &end);
         if (*end != ',') {
-            fprintf(stderr, "Expected ',' after x at line %zu\n", i + 2);
+            fprintf(stderr, "Expected ',' after x at line %u\n", i + 2);
             cleanup(file, x, y);
             return false;
         }
@@ -83,7 +83,7 @@ bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
         const char *start = end;
         (*y)[i] = strtod(start, &end);
         if (start == end) {
-            fprintf(stderr, "Invalid y value at line %zu\n", i + 1);
+            fprintf(stderr, "Invalid y value at line %u\n", i + 1);
             cleanup(file, x, y);
             return false;
         }
@@ -108,7 +108,7 @@ bool parse_input_file(const char *filename, double **x, double **y, size_t *n) {
  *
  * @note The arrays x, y, and cluster must have at least n elements.
  */
-void write_output_file(const char *filename, const double *x, const double *y, const int *cluster, const size_t n) {
+void write_output_file(const char *filename, const double *x, const double *y, const int *cluster, const int n) {
     FILE *file = fopen(filename, "w");
     if (!file) {
         fprintf(stderr, "Error opening file %s\n", filename);
@@ -118,8 +118,8 @@ void write_output_file(const char *filename, const double *x, const double *y, c
     // Write header
     fprintf(file, "x,y,cluster\n");
 
-    for (size_t i = 0; i < n; i++) {
-        fprintf(file, "%.15g,%.15g,%d\n", x[i], y[i], cluster[i]);
+    for (int i = 0; i < n; i++) {
+        fprintf(file, "%.15g,%.15g,%u\n", x[i], y[i], cluster[i]);
     }
 
     fclose(file);

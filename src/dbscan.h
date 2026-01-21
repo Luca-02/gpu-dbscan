@@ -25,6 +25,19 @@
 #define HD
 #endif
 
+HD inline void cell_coordinates(
+    int *cx,
+    int *cy,
+    const double x,
+    const double y,
+    const int x_min,
+    const int y_min,
+    const double eps
+) {
+    *cx = floor((x - x_min) / eps);
+    *cy = floor((y - y_min) / eps);
+}
+
 /**
  * @brief Checks if a point is a core point based on its degree and minimum number of points.
  *
@@ -34,7 +47,7 @@
  *
  * @note The point itself is counted in the degree.
  */
-HD inline bool is_core(const size_t deg, const size_t min_pts) {
+HD inline bool is_core(const int deg, const int min_pts) {
     return deg + 1 >= min_pts;
 }
 
@@ -64,22 +77,42 @@ HD inline bool is_eps_neighbor(
 
 void dbscan_cpu(
     int *cluster,
-    size_t *cluster_count,
+    int *cluster_count,
     const double *x,
     const double *y,
-    size_t n,
+    int n,
     double eps,
-    size_t min_pts
+    int min_pts
 );
 
 void dbscan_gpu(
     int *cluster,
-    size_t *cluster_count,
+    int *cluster_count,
     const double *x,
     const double *y,
-    size_t n,
+    int n,
     double eps,
-    size_t min_pts
+    int min_pts
+);
+
+void dbscan_gpu_opt(
+    int *cluster,
+    int *cluster_count,
+    const double *x,
+    const double *y,
+    int n,
+    double eps,
+    int min_pts
+);
+
+void dbscan_gpu_grid(
+    int *cluster,
+    int *cluster_count,
+    const double *x,
+    const double *y,
+    int n,
+    double eps,
+    int min_pts
 );
 
 #endif

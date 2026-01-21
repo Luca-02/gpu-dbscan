@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cstdio>
 #include <ctime>
-#include "helper.h"
+#include "common.h"
 #include "io.h"
 #include "dbscan.h"
 
@@ -22,57 +22,61 @@ void free_resource(double **x, double **y, int **cluster) {
 
 int main() {
     double *x, *y;
-    size_t n;
+    int n;
 
     if (!parse_input_file(INPUT_FILE, &x, &y, &n)) {
         fprintf(stderr, "Error parsing points file\n");
         return EXIT_FAILURE;
     }
 
-    printf("Processing %zu points.\n", n);
-    printf("==============================\n");
-
     int *cluster = (int *) malloc_s(n * sizeof(int));
-    size_t cluster_count_cpu;
-    size_t cluster_count_gpu;
+    int cluster_count;
     if (!cluster) {
         free_resource(&x, &y, &cluster);
         return EXIT_FAILURE;
     }
 
-    clock_t start = clock();
-    dbscan_gpu(cluster, &cluster_count_cpu, x, y, n, EPSILON, MIN_PTS);
-    clock_t end = clock();
-    const double elapsed_cpu = (double) (end - start) / CLOCKS_PER_SEC;
-    printf("dbscan_gpu elapsed time: %f seconds\n", elapsed_cpu);
-    write_output_file(OUTPUT_FILE_GPU, x, y, cluster, n);
+    clock_t start, end;
+    double elapsed;
+
+    start = clock();
+    dbscan_gpu(cluster, &cluster_count, x, y, n, EPSILON, MIN_PTS);
+    end = clock();
+    elapsed = (double) (end - start) / CLOCKS_PER_SEC;
+    printf("dbscan_gpu elapsed time: %f seconds\n", elapsed);
+    write_output_file("../data/output_gpu1.csv", x, y, cluster, n);
+
+    start = clock();
+    dbscan_gpu_grid(cluster, &cluster_count, x, y, n, EPSILON, MIN_PTS);
+    end = clock();
+    elapsed = (double) (end - start) / CLOCKS_PER_SEC;
+    printf("dbscan_gpu_grid elapsed time: %f seconds\n", elapsed);
+    write_output_file("../data/output_gpu2.csv", x, y, cluster, n);
 
     free_resource(&x, &y, &cluster);
     return EXIT_SUCCESS;
 }
 
-
 // int main() {
 //     double *x, *y;
-//     size_t n;
+//     int n;
 //
 //     if (!parse_input_file(INPUT_FILE, &x, &y, &n)) {
 //         fprintf(stderr, "Error parsing points file\n");
 //         return EXIT_FAILURE;
 //     }
 //
-//     printf("Processing %zu points.\n", n);
+//     printf("Processing %u points.\n", n);
 //     printf("==============================\n");
 //
 //     int *cluster = (int *) malloc_s(n * sizeof(int));
-//     size_t cluster_count_cpu;
-//     size_t cluster_count_gpu;
 //     if (!cluster) {
 //         free_resource(&x, &y, &cluster);
 //         return EXIT_FAILURE;
 //     }
 //
 //     printf("Running sequential DBSCAN...\n");
+//     int cluster_count_cpu;
 //     clock_t start = clock();
 //     dbscan_cpu(cluster, &cluster_count_cpu, x, y, n, EPSILON, MIN_PTS);
 //     clock_t end = clock();
@@ -83,6 +87,7 @@ int main() {
 //     printf("==============================\n");
 //
 //     printf("Running sequential DBSCAN...\n");
+//     int cluster_count_gpu;
 //     start = clock();
 //     dbscan_gpu(cluster, &cluster_count_gpu, x, y, n, EPSILON, MIN_PTS);
 //     end = clock();
