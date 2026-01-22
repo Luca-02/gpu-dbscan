@@ -20,14 +20,9 @@ def generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n
     :param n: Number of points to generate
     :return: List of (x, y) points forming a banana-shaped cluster
     """
-    points = []
-    for _ in range(n):
-        theta = random.uniform(angle_start, angle_end)
-        r = radius + random.gauss(0, thickness)
-        x = r * math.cos(theta)
-        y = r * math.sin(theta)
-        points.append((cx + x, cy + y))
-    return points
+    angles = [random.uniform(angle_start, angle_end) for _ in range(n)]
+    radii = [radius + random.gauss(0, thickness) for _ in range(n)]
+    return [(cx + r * math.cos(theta), cy + r * math.sin(theta)) for r, theta in zip(radii, angles)]
 
 
 def generate_elliptical_cluster(cx, cy, a, b, angle, n):
@@ -44,14 +39,15 @@ def generate_elliptical_cluster(cx, cy, a, b, angle, n):
     :param n: Number of points to generate
     :return: List of (x, y) points forming an elliptical cluster
     """
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    ts = [random.uniform(0, 2 * math.pi) for _ in range(n)]
+    rs = [random.gauss(1, 0.1) for _ in range(n)]
     points = []
-    for _ in range(n):
-        t = random.uniform(0, 2 * math.pi)
-        r = random.gauss(1, 0.1)
+    for t, r in zip(ts, rs):
         x = a * r * math.cos(t)
         y = b * r * math.sin(t)
-        xr = x * math.cos(angle) - y * math.sin(angle)
-        yr = x * math.sin(angle) + y * math.cos(angle)
+        xr = x * cos_a - y * sin_a
+        yr = x * sin_a + y * cos_a
         points.append((cx + xr, cy + yr))
     return points
 
@@ -70,16 +66,10 @@ def generate_elongated_cluster(cx, cy, length, thickness, angle, n):
     :param n: Number of points to generate
     :return: List of (x, y) points forming an elongated cluster
     """
-    points = []
-    for _ in range(n):
-        t = random.uniform(-length / 2, length / 2)
-        offset = random.gauss(0, thickness)
-        x = t
-        y = offset
-        xr = x * math.cos(angle) - y * math.sin(angle)
-        yr = x * math.sin(angle) + y * math.cos(angle)
-        points.append((cx + xr, cy + yr))
-    return points
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    ts = [random.uniform(-length / 2, length / 2) for _ in range(n)]
+    offsets = [random.gauss(0, thickness) for _ in range(n)]
+    return [(cx + t * cos_a - o * sin_a, cy + t * sin_a + o * cos_a) for t, o in zip(ts, offsets)]
 
 
 def generate_noise(n, xmin, xmax, ymin, ymax):
@@ -93,10 +83,9 @@ def generate_noise(n, xmin, xmax, ymin, ymax):
     :param ymax: Maximum y coordinate
     :return: List of (x, y) noise points
     """
-    return [
-        (random.uniform(xmin, xmax), random.uniform(ymin, ymax))
-        for _ in range(n)
-    ]
+    xs = [random.uniform(xmin, xmax) for _ in range(n)]
+    ys = [random.uniform(ymin, ymax) for _ in range(n)]
+    return list(zip(xs, ys))
 
 
 def random_center(xmin, xmax, ymin, ymax, margin=10):
@@ -111,10 +100,7 @@ def random_center(xmin, xmax, ymin, ymax, margin=10):
     :param margin: Minimum distance from the borders
     :return: Tuple (cx, cy) representing the center point
     """
-    return (
-        random.uniform(xmin + margin, xmax - margin),
-        random.uniform(ymin + margin, ymax - margin),
-    )
+    return random.uniform(xmin + margin, xmax - margin), random.uniform(ymin + margin, ymax - margin)
 
 
 def generate_random_cluster(xmin, xmax, ymin, ymax, scale=1.0):
@@ -141,24 +127,26 @@ def generate_random_cluster(xmin, xmax, ymin, ymax, scale=1.0):
         angle_end = angle_start + random.uniform(2, 3)
         n = int(random.randint(300, 800) * scale)
         return generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n)
+
     elif cluster_type == "ellipse":
         a = random.uniform(2, 6) * scale
         b = random.uniform(2, 5) * scale
         angle = random.uniform(0, math.pi)
         n = int(random.randint(300, 600) * scale)
         return generate_elliptical_cluster(cx, cy, a, b, angle, n)
+
     elif cluster_type == "elongated":
         length = random.uniform(12, 18) * scale
         thickness = random.uniform(0.3, 0.6) * scale
         angle = random.uniform(-math.pi / 2, math.pi / 2)
         n = int(random.randint(300, 800) * scale)
         return generate_elongated_cluster(cx, cy, length, thickness, angle, n)
-    else:
-        a = random.uniform(1, 3) * scale
-        b = random.uniform(1, 3) * scale
-        angle = random.uniform(0, math.pi)
-        n = int(random.randint(200, 300) * scale)
-        return generate_elliptical_cluster(cx, cy, a, b, angle, n)
+
+    a = random.uniform(1, 3) * scale
+    b = random.uniform(1, 3) * scale
+    angle = random.uniform(0, math.pi)
+    n = int(random.randint(200, 300) * scale)
+    return generate_elliptical_cluster(cx, cy, a, b, angle, n)
 
 
 def generate_dataset(file_name, xmin, xmax, ymin, ymax, n_cluster=20):
@@ -180,15 +168,21 @@ def generate_dataset(file_name, xmin, xmax, ymin, ymax, n_cluster=20):
     for _ in range(n_cluster):
         points += generate_random_cluster(xmin, xmax, ymin, ymax, scale)
 
+    if points:
+        x_vals, y_vals = zip(*points)
+        xmin = min(xmin, min(x_vals))
+        xmax = max(xmax, max(x_vals))
+        ymin = min(ymin, min(y_vals))
+        ymax = max(ymax, max(y_vals))
+
     area = (xmax - xmin) * (ymax - ymin)
-    n_noise = int(area * 0.00001)
+    n_noise = int(area * 0.0001)
     points += generate_noise(n_noise, xmin, xmax, ymin, ymax)
 
     with open(f"../data/{file_name}.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["x", "y"])
-        for x, y in points:
-            writer.writerow([f"{x:.15g}", f"{y:.15g}"])
+        writer.writerows(points)
 
 
 if __name__ == "__main__":

@@ -2,8 +2,8 @@ import argparse
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import numpy as np
+from matplotlib.lines import Line2D
 
 
 def plot_clusters(file_name):
@@ -30,20 +30,22 @@ def plot_clusters(file_name):
     for xi, yi, ci in zip(x, y, clusters):
         cluster_dict[ci].append((xi, yi))
 
-    plt.figure(file_name, figsize=(10, 8))
-    
+    plt.figure(file_name, figsize=(8, 8))
+
     legend_elements = []
     for cluster_id, points in cluster_dict.items():
         points = np.array(points)
         if cluster_id <= 0:
             plt.scatter(points[:, 0], points[:, 1], c="black", s=1, label="Outlier")
             legend_elements.append(
-                Line2D([0], [0], marker='o', color='black', linestyle='None', markersize=10, label="Outlier")
+                Line2D([0], [0], marker='o', color='black',
+                       linestyle='None', markersize=10, label="Outlier")
             )
         else:
             sc = plt.scatter(points[:, 0], points[:, 1], s=1, label=f"Cluster {cluster_id}")
             legend_elements.append(
-                Line2D([0], [0], marker='o', color=sc.get_facecolor()[0], linestyle='None', markersize=10, label=f"Cluster {cluster_id}")
+                Line2D([0], [0], marker='o', color=sc.get_facecolor()[0],
+                       linestyle='None', markersize=10, label=f"Cluster {cluster_id}")
             )
 
     plt.title(file_name)
@@ -51,13 +53,13 @@ def plot_clusters(file_name):
     plt.ylabel("Y")
     plt.grid(True)
     plt.axis("equal")
-    plt.legend(
-        handles=legend_elements,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        borderaxespad=0
-    )
-    plt.tight_layout()
+    # plt.legend(
+    #     handles=legend_elements,
+    #     loc="center left",
+    #     bbox_to_anchor=(1.02, 0.5),
+    #     borderaxespad=0
+    # )
+    # plt.tight_layout()
     plt.show()
 
 

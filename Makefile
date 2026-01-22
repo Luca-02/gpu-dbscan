@@ -5,11 +5,11 @@ init:
 	pip install -r requirements.txt
 
 FN_IN ?= input
-NC ?= 50
-XMIN ?= -250
-XMAX ?= 250
-YMIN ?= -250
-YMAX ?= 250
+NC ?= 20
+XMIN ?= -5000
+XMAX ?= 5000
+YMIN ?= -5000
+YMAX ?= 5000
 generate:
 	cd script && \
 	call .venv/Scripts/activate && \

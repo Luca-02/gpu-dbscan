@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "io.h"
-#include "common.h"
+#include "helper.h"
 
 static void cleanup(FILE *file, double **x, double **y) {
     if (*x) {

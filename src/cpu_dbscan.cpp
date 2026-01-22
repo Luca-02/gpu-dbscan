@@ -1,103 +1,131 @@
 #include <queue>
-#include "dbscan.h"
+#include "cpu_dbscan.h"
 #include "common.h"
+#include "helper.h"
 
-/**
- * @brief Initialize the cluster labels to default 0.
- *
- * @param cluster Array of cluster labels.
- * @param n Number of points.
- */
-static void init_cluster(int *cluster, const int n) {
-    for (size_t i = 0; i < n; i++) {
-        cluster[i] = NO_CLUSTER;
-    }
+static void free_dbscan_resources(Grid *grid, int **queue, int **neighbors_buf) {
+    free_grid(grid);
+    if (*queue) free(*queue);
+    if (*neighbors_buf) free(*neighbors_buf);
+    *queue = nullptr;
+    *neighbors_buf = nullptr;
 }
 
-static void free_adj_resources(int **cum_deg, int **adj, int **offset, int **degree) {
-    if (cum_deg && *cum_deg) {
-        free(*cum_deg);
-        *cum_deg = nullptr;
-    }
-    if (adj && *adj) {
-        free(*adj);
-        *adj = nullptr;
-    }
-    if (offset && *offset) {
-        free(*offset);
-        *offset = nullptr;
-    }
-    if (*degree) {
-        free(*degree);
-        *degree = nullptr;
-    }
-}
-
-static bool compute_adj_list(
-    int **cum_deg,
-    int **adj,
-    const double *x,
-    const double *y,
-    const int n,
-    const double eps
-) {
-    int *degree = (int *) calloc_s(n, sizeof(int));
-    if (!degree) return false;
-
-    int total_neighbors = 0;
-    for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            if (is_eps_neighbor(x[i], y[i], x[j], y[j], eps)) {
-                degree[i]++;
-                degree[j]++;
-            }
-        }
-        total_neighbors += degree[i];
+bool init_grid(Grid *grid, const double *x, const double *y, const int n, const double eps) {
+    double x_min = x[0], x_max = x[0];
+    double y_min = y[0], y_max = y[0];
+    for (int i = 1; i < n; i++) {
+        x_min = fmin(x_min, x[i]);
+        x_max = fmax(x_max, x[i]);
+        y_min = fmin(y_min, y[i]);
+        y_max = fmax(y_max, y[i]);
     }
 
-    *cum_deg = (int *) malloc_s((n + 1) * sizeof(int));
-    if (!*cum_deg) {
-        free_adj_resources(cum_deg, nullptr, nullptr, &degree);
+    grid->x_min = x_min;
+    grid->y_min = y_min;
+    grid->cell_size = eps;
+
+    grid->width = ceil((x_max - grid->x_min) / eps + 1);
+    grid->height = ceil((y_max - grid->y_min) / eps + 1);
+
+    const int cell_count = grid->width * grid->height;
+
+    grid->cell_start = (int *) malloc_s(cell_count * sizeof(int));
+    grid->cell_offset = (int *) calloc_s(cell_count, sizeof(int));
+    grid->cell_points = (int *) malloc_s(n * sizeof(int));
+    if (!grid->cell_start || !grid->cell_offset || !grid->cell_points) {
+        free_grid(grid);
         return false;
     }
 
-    (*cum_deg)[0] = 0;
-    for (int i = 1; i <= n; i++) {
-        (*cum_deg)[i] = (*cum_deg)[i - 1] + degree[i - 1];
-    }
-
-    *adj = (int *) malloc_s(total_neighbors * sizeof(int));
-    int *offset = (int *) calloc_s(n, sizeof(int));
-    if (!*adj || !offset) {
-        free_adj_resources(cum_deg, adj, &offset, &degree);
-        return false;
-    }
-
+    // Compute the cells offsets
     for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            if (is_eps_neighbor(x[i], y[i], x[j], y[j], eps)) {
-                (*adj)[(*cum_deg)[i] + offset[i]++] = j;
-                (*adj)[(*cum_deg)[j] + offset[j]++] = i;
-            }
-        }
+        int cx, cy;
+        cell_coordinates(&cx, &cy, x[i], y[i], x_min, y_min, eps);
+        const int c = cy * grid->width + cx;
+        grid->cell_offset[c]++;
     }
 
-    free_adj_resources(nullptr, nullptr, &offset, &degree);
+    // Compute the cells start indexes
+    int offset = 0;
+    for (int c = 0; c < cell_count; c++) {
+        grid->cell_start[c] = offset;
+        offset += grid->cell_offset[c];
+        grid->cell_offset[c] = 0;
+    }
+
+    // Insert points into its cell
+    for (int i = 0; i < n; i++) {
+        int cx, cy;
+        cell_coordinates(&cx, &cy, x[i], y[i], x_min, y_min, eps);
+        const int c = cy * grid->width + cx;
+        const int pos = grid->cell_start[c] + grid->cell_offset[c];
+        grid->cell_points[pos] = i;
+        grid->cell_offset[c]++;
+    }
+
     return true;
 }
 
-static void free_dbscan_resources(int **cum_deg, int **adj, int **queue) {
-    if (*cum_deg) {
-        free(*cum_deg);
-        *cum_deg = nullptr;
+int find_neighbors(
+    int *neighbor,
+    const Grid *grid,
+    const double *x,
+    const double *y,
+    const int i
+) {
+    int count = 0;
+    int cx, cy;
+    cell_coordinates(&cx, &cy, x[i], y[i], grid->x_min, grid->y_min, grid->cell_size);
+
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            const int nx = cx + dx;
+            const int ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= grid->width || ny >= grid->height) continue;
+
+            const int c = ny * grid->width + nx;
+            const int start = grid->cell_start[c];
+            const int offset = grid->cell_offset[c];
+            for (int k = 0; k < offset; k++) {
+                const int j = grid->cell_points[start + k];
+                if (i != j && is_eps_neighbor(x[i], y[i], x[j], y[j], grid->cell_size)) {
+                    neighbor[count++] = j;
+                }
+            }
+        }
     }
-    if (*adj) {
-        free(*adj);
-        *adj = nullptr;
-    }
-    if (queue && *queue) {
-        free(*queue);
-        *queue = nullptr;
+    return count;
+}
+
+static void expand_cluster(
+    int *cluster,
+    int *queue,
+    int *neighbors_buf,
+    const Grid *grid,
+    const double *x,
+    const double *y,
+    const int min_pts,
+    const int cluster_id,
+    const int i
+) {
+    cluster[i] = cluster_id;
+    int head = 0, tail = 0;
+    queue[tail++] = i;
+
+    while (head < tail) {
+        const int j = queue[head++];
+        const int degree = find_neighbors(neighbors_buf, grid, x, y, j);
+
+        if (degree < min_pts) continue;
+
+        for (int k = 0; k < degree; k++) {
+            const int r = neighbors_buf[k];
+            if (cluster[r] == NO_CLUSTER) {
+                cluster[r] = cluster_id;
+                queue[tail++] = r;
+            }
+        }
     }
 }
 
@@ -110,54 +138,33 @@ void dbscan_cpu(
     const double eps,
     const int min_pts
 ) {
-    int *cum_deg = nullptr;
-    int *adj = nullptr;
-    init_cluster(cluster, n);
+    memset(cluster, NO_CLUSTER, n * sizeof(int));
 
-    if (!compute_adj_list(&cum_deg, &adj, x, y, n, eps)) {
-        fprintf(stderr, "Failed to compute adjacency list\n");
-        free_dbscan_resources(&cum_deg, &adj, nullptr);
+    Grid grid;
+    if (!init_grid(&grid, x, y, n, eps)) {
+        fprintf(stderr, "Failed to compute grid\n");
+        return;
+    }
+
+    int *queue = (int *) malloc_s(n * sizeof(int));
+    int *neighbors_buf = (int *) malloc_s(n * sizeof(int));
+    if (!queue || !neighbors_buf) {
+        free_dbscan_resources(&grid, &queue, &neighbors_buf);
         return;
     }
 
     int cluster_id = NO_CLUSTER;
-    int *queue = (int *) malloc_s(n * sizeof(int));
-    if (!queue) {
-        free_dbscan_resources(&cum_deg, &adj, &queue);
-        return;
-    }
 
-    for (int p = 0; p < n; p++) {
-        const int deg = cum_deg[p + 1] - cum_deg[p];
+    for (int i = 0; i < n; i++) {
+        if (cluster[i] != NO_CLUSTER) continue;
 
-        if (cluster[p] != NO_CLUSTER || !is_core(deg, min_pts)) continue;
+        const int degree = find_neighbors(neighbors_buf, &grid, x, y, i);
+        if (degree < min_pts) continue;
 
-        // Assign cluster to core point
-        cluster[p] = ++cluster_id;
-        int head = 0, tail = 0;
-        queue[tail++] = p;
-
-        while (head < tail) {
-            const int q = queue[head++];
-
-            const int start = cum_deg[q];
-            const int end = cum_deg[q + 1];
-            const int q_deg = end - start;
-
-            // Border points
-            if (!is_core(q_deg, min_pts)) continue;
-
-            for (int k = start; k < end; k++) {
-                const int neighbor = adj[k];
-                if (cluster[neighbor] == NO_CLUSTER) {
-                    cluster[neighbor] = cluster_id;
-                    queue[tail++] = neighbor;
-                }
-            }
-        }
+        expand_cluster(cluster, queue, neighbors_buf, &grid, x, y, min_pts, ++cluster_id, i);
     }
 
     *cluster_count = cluster_id;
 
-    free_dbscan_resources(&cum_deg, &adj, &queue);
+    free_dbscan_resources(&grid, &queue, &neighbors_buf);
 }

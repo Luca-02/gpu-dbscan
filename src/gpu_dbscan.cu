@@ -1,19 +1,20 @@
 #include <cccl/thrust/sort.h>
-#include "dbscan.h"
+#include "gpu_dbscan.h"
 #include "common.h"
+#include "helper.h"
 
 #define BLOCK_SIZE 1024
 
-__global__ void init_point_idx(int *point_idx, const int n) {
+__global__ void init_cell_points(int *cell_points, const int n) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (idx < n) {
-        point_idx[idx] = idx;
+        cell_points[idx] = idx;
     }
 }
 
-__global__ void compute_cell_id(
-    int *cell_id,
+__global__ void compute_cell_ids(
+    int *cell_ids,
     const double *x,
     const double *y,
     const double x_min,
@@ -27,60 +28,37 @@ __global__ void compute_cell_id(
 
     int cx, cy;
     cell_coordinates(&cx, &cy, x[tid], y[tid], x_min, y_min, eps);
-    cell_id[tid] = cx + cy * grid_width;
+    cell_ids[tid] = cy * grid_width + cx;
 }
 
-__global__ void build_cell_offset(
-    int *cell_start,
-    int *cell_end,
-    const int *cell_id,
+__global__ void compute_cell_offsets(
+    int *cell_starts,
+    int *cell_offsets,
+    const int *cell_ids,
     const int n
 ) {
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= n) return;
 
-    const int cid = cell_id[tid];
+    const int cid = cell_ids[tid];
 
-    if (tid == 0 || cid != cell_id[tid - 1]) {
-        cell_start[cid] = tid;
+    if (tid == 0 || cid != cell_ids[tid - 1]) {
+        cell_starts[cid] = tid;
     }
 
-    if (tid == n - 1 || cid != cell_id[tid + 1]) {
-        cell_end[cid] = tid + 1;
+    if (tid == n - 1 || cid != cell_ids[tid + 1]) {
+        cell_offsets[cid] = tid + 1;
     }
 }
 
-__global__ void compute_neighbor_count(
-    int *neighbor_count,
+__global__ void compute_neighbor_counts(
+    int *neighbor_counts,
     const double *x,
     const double *y,
-    const int n,
-    const double eps
-) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= n) return;
-
-    const double xi = x[tid];
-    const double yi = y[tid];
-
-    int count = 0;
-    for (int j = 0; j < n; j++) {
-        if (is_eps_neighbor(xi, yi, x[j], y[j], eps)) {
-            count++;
-        }
-    }
-
-    neighbor_count[tid] = count;
-}
-
-__global__ void compute_neighbor_count(
-    int *neighbor_count,
-    const double *x,
-    const double *y,
-    const int *cell_id,
-    const int *cell_start,
-    const int *cell_end,
-    const int *point_idx,
+    const int *cell_ids,
+    const int *cell_starts,
+    const int *cell_offsets,
+    const int *cell_points,
     const int grid_width,
     const int grid_height,
     const int n,
@@ -89,10 +67,10 @@ __global__ void compute_neighbor_count(
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= n) return;
 
-    const int i = point_idx[tid];
+    const int i = cell_points[tid];
     const double xi = x[i];
     const double yi = y[i];
-    const int cid = cell_id[tid];
+    const int cid = cell_ids[tid];
 
     const int cx = cid % grid_width;
     const int cy = cid / grid_width;
@@ -105,53 +83,19 @@ __global__ void compute_neighbor_count(
             if (nx < 0 || ny < 0 || nx >= grid_width || ny >= grid_height) continue;
 
             const int nid = ny * grid_width + nx;
-            const int start = cell_start[nid];
-            const int end   = cell_end[nid];
+            const int start = cell_starts[nid];
+            const int offset = cell_offsets[nid];
+            if (start == -1) continue;
 
-            for (int k = start; k < end; k++) {
-                const int j = point_idx[k];
-                if (is_eps_neighbor(xi, yi, x[j], y[j], eps))
+            for (int k = start; k < offset; k++) {
+                const int j = cell_points[k];
+                if (i != j && is_eps_neighbor(xi, yi, x[j], y[j], eps))
                     count++;
             }
         }
     }
 
-    neighbor_count[i] = count;
-}
-
-__global__ void bfs_expand(
-    int *cluster,
-    int *next_frontier,
-    int *next_frontier_size,
-    const double *x,
-    const double *y,
-    const int *neighbor_count,
-    const int *frontier,
-    const int frontier_size,
-    const int cluster_id,
-    const int n,
-    const double eps,
-    const int min_pts
-) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= frontier_size) return;
-
-    const int i = frontier[tid];
-    const double xi = x[i];
-    const double yi = y[i];
-
-    for (int j = 0; j < n; j++) {
-        if (i == j) continue;
-
-        if (is_eps_neighbor(xi, yi, x[j], y[j], eps)) {
-            const int old = atomicCAS(&cluster[j], NO_CLUSTER, cluster_id);
-
-            if (old == NO_CLUSTER && is_core(neighbor_count[j], min_pts)) {
-                const int pos = atomicAdd(next_frontier_size, 1);
-                next_frontier[pos] = j;
-            }
-        }
-    }
+    neighbor_counts[i] = count;
 }
 
 __global__ void bfs_expand_opt(
@@ -160,7 +104,7 @@ __global__ void bfs_expand_opt(
     int *next_frontier_size,
     const double *x,
     const double *y,
-    const int *neighbor_count,
+    const int *neighbor_counts,
     const int *frontier,
     const int frontier_size,
     const int cluster_id,
@@ -188,12 +132,10 @@ __global__ void bfs_expand_opt(
         const double yi = y[i];
 
         for (int j = 0; j < n; j++) {
-            if (i == j) continue;
-
-            if (is_eps_neighbor(xi, yi, x[j], y[j], eps)) {
+            if (i != j && is_eps_neighbor(xi, yi, x[j], y[j], eps)) {
                 const int old = atomicCAS(&cluster[j], NO_CLUSTER, cluster_id);
 
-                if (old == NO_CLUSTER && is_core(neighbor_count[j], min_pts)) {
+                if (old == NO_CLUSTER && is_core(neighbor_counts[j], min_pts)) {
                     const int smem_pos = atomicAdd(&smem_count, 1);
 
                     if (smem_pos < smem_size) {
@@ -226,21 +168,21 @@ __global__ void bfs_expand_opt(
     }
 }
 
-__global__ void bfs_expand_grid(
+__global__ void bfs_expand(
     int *cluster,
     int *next_frontier,
     int *next_frontier_size,
     const double *x,
     const double *y,
-    const int *cell_start,
-    const int *cell_end,
-    const int *point_idx,
-    const int grid_width,
-    const int grid_height,
+    const int *cell_starts,
+    const int *cell_offsets,
+    const int *cell_points,
+    const int *neighbor_counts,
+    const int *frontier,
     const double x_min,
     const double y_min,
-    const int *neighbor_count,
-    const int *frontier,
+    const int grid_width,
+    const int grid_height,
     const int frontier_size,
     const int cluster_id,
     const double eps,
@@ -263,17 +205,17 @@ __global__ void bfs_expand_grid(
             if (nx < 0 || ny < 0 || nx >= grid_width || ny >= grid_height) continue;
 
             const int cid = nx + ny * grid_width;
-            const int start = cell_start[cid];
-            const int end = cell_end[cid];
+            const int start = cell_starts[cid];
+            const int offset = cell_offsets[cid];
+            if (start == -1) continue;
 
-            for (int k = start; k < end; k++) {
-                const int j = point_idx[k];
-                if (i == j) continue;
+            for (int k = start; k < offset; k++) {
+                const int j = cell_points[k];
 
-                if (is_eps_neighbor(xi, yi, x[j], y[j], eps)) {
+                if (i != j && is_eps_neighbor(xi, yi, x[j], y[j], eps)) {
                     const int old = atomicCAS(&cluster[j], NO_CLUSTER, cluster_id);
 
-                    if (old == NO_CLUSTER && is_core(neighbor_count[j], min_pts)) {
+                    if (old == NO_CLUSTER && is_core(neighbor_counts[j], min_pts)) {
                         const int pos = atomicAdd(next_frontier_size, 1);
                         next_frontier[pos] = j;
                     }
@@ -292,38 +234,72 @@ void dbscan_gpu(
     const double eps,
     const int min_pts
 ) {
-    int *h_neighbor_count = (int *) malloc_s(n * sizeof(int));
-    if (!h_neighbor_count) return;
+    double x_min = x[0], x_max = x[0];
+    double y_min = y[0], y_max = y[0];
+    for (int i = 1; i < n; i++) {
+        x_min = fmin(x_min, x[i]);
+        x_max = fmax(x_max, x[i]);
+        y_min = fmin(y_min, y[i]);
+        y_max = fmax(y_max, y[i]);
+    }
+
+    const int grid_width = ceil((x_max - x_min) / eps + 1);
+    const int grid_height = ceil((y_max - y_min) / eps + 1);
+    const int cell_count = grid_width * grid_height;
+
+    int *h_neighbor_counts = (int *) malloc_s(n * sizeof(int));
+    if (!h_neighbor_counts) return;
 
     int *d_cluster;
     double *d_x, *d_y;
-    int *d_neighbor_count;
+    int *d_cell_ids;
+    int *d_cell_starts, *d_cell_offsets;
+    int *d_cell_points;
+    int *d_neighbor_counts;
     int *d_frontier, *d_next_frontier;
     int *d_next_frontier_size;
 
     CUDA_CHECK(cudaMalloc(&d_cluster, n * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_x, n * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_y, n * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_neighbor_count, n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_cell_ids, n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_cell_starts, cell_count * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_cell_offsets, cell_count * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_cell_points, n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_neighbor_counts, n * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_frontier, n * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_next_frontier, n * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_next_frontier_size, sizeof(int)));
 
-    CUDA_CHECK(cudaMemset(d_cluster, NO_CLUSTER, n * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(d_x, x, n * sizeof(double), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_y, y, n * sizeof(double), cudaMemcpyHostToDevice));
+
+    CUDA_CHECK(cudaMemset(d_cluster, NO_CLUSTER, n * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_cell_starts, -1, cell_count * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_cell_offsets, -1, cell_count * sizeof(int)));
 
     dim3 block(BLOCK_SIZE);
     dim3 grid((n + block.x - 1) / block.x);
 
-    compute_neighbor_count<<<grid, block>>>(d_neighbor_count, d_x, d_y, n, eps);
+    init_cell_points<<<grid, block>>>(d_cell_points, n);
 
-    CUDA_CHECK(cudaMemcpy(h_neighbor_count, d_neighbor_count, n * sizeof(int), cudaMemcpyDeviceToHost));
+    compute_cell_ids<<<grid, block>>>(d_cell_ids, d_x, d_y, x_min, y_min, grid_width, n, eps);
+
+    thrust::sort_by_key(thrust::device, d_cell_ids, d_cell_ids + n, d_cell_points);
+
+    compute_cell_offsets<<<grid, block>>>(d_cell_starts, d_cell_offsets, d_cell_ids, n);
+
+    compute_neighbor_counts<<<grid, block>>>(
+        d_neighbor_counts, d_x, d_y, d_cell_ids, d_cell_starts,
+        d_cell_offsets, d_cell_points, grid_width, grid_height, n, eps
+    );
+
+    CUDA_CHECK(cudaMemcpy(h_neighbor_counts, d_neighbor_counts, n * sizeof(int), cudaMemcpyDeviceToHost));
 
     int cluster_id = NO_CLUSTER;
 
     for (int p = 0; p < n; p++) {
-        if (!is_core(h_neighbor_count[p], min_pts)) continue;
+        if (!is_core(h_neighbor_counts[p], min_pts)) continue;
 
         int h_cluster;
         CUDA_CHECK(cudaMemcpy(&h_cluster, d_cluster + p, sizeof(int), cudaMemcpyDeviceToHost));
@@ -332,6 +308,7 @@ void dbscan_gpu(
         cluster_id++;
 
         // Assign cluster to core point
+        // TODO add this from the kernel in the loop
         CUDA_CHECK(cudaMemcpy(d_cluster + p, &cluster_id, sizeof(int), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_frontier, &p, sizeof(int), cudaMemcpyHostToDevice));
 
@@ -342,228 +319,9 @@ void dbscan_gpu(
             dim3 grid_frontier((frontier_size + block.x - 1) / block.x);
 
             bfs_expand<<<grid_frontier, block>>>(
-                d_cluster,
-                d_next_frontier,
-                d_next_frontier_size,
-                d_x,
-                d_y,
-                d_neighbor_count,
-                d_frontier,
-                frontier_size,
-                cluster_id,
-                n,
-                eps,
-                min_pts
-            );
-
-            CUDA_CHECK(cudaMemcpy(&frontier_size, d_next_frontier_size, sizeof(int), cudaMemcpyDeviceToHost));
-            std::swap(d_frontier, d_next_frontier);
-        }
-    }
-
-    *cluster_count = cluster_id;
-
-    CUDA_CHECK(cudaMemcpy(cluster, d_cluster, n * sizeof(int), cudaMemcpyDeviceToHost));
-
-    CUDA_CHECK(cudaFree(d_cluster));
-    CUDA_CHECK(cudaFree(d_x));
-    CUDA_CHECK(cudaFree(d_y));
-    CUDA_CHECK(cudaFree(d_neighbor_count));
-    CUDA_CHECK(cudaFree(d_frontier));
-    CUDA_CHECK(cudaFree(d_next_frontier));
-    CUDA_CHECK(cudaFree(d_next_frontier_size));
-
-    cudaDeviceReset();
-}
-
-void dbscan_gpu_opt(
-    int *cluster,
-    int *cluster_count,
-    const double *x,
-    const double *y,
-    const int n,
-    const double eps,
-    const int min_pts
-) {
-    int *h_neighbor_count = (int *) malloc_s(n * sizeof(int));
-    if (!h_neighbor_count) return;
-
-    int *d_cluster;
-    double *d_x, *d_y;
-    int *d_neighbor_count;
-    int *d_frontier, *d_next_frontier;
-    int *d_next_frontier_size;
-
-    CUDA_CHECK(cudaMalloc(&d_cluster, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_x, n * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_y, n * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_neighbor_count, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_frontier, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_next_frontier, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_next_frontier_size, sizeof(int)));
-
-    CUDA_CHECK(cudaMemset(d_cluster, NO_CLUSTER, n * sizeof(int)));
-    CUDA_CHECK(cudaMemcpy(d_x, x, n * sizeof(double), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_y, y, n * sizeof(double), cudaMemcpyHostToDevice));
-
-    dim3 block(BLOCK_SIZE);
-    dim3 grid((n + block.x - 1) / block.x);
-
-    compute_neighbor_count<<<grid, block>>>(d_neighbor_count, d_x, d_y, n, eps);
-
-    CUDA_CHECK(cudaMemcpy(h_neighbor_count, d_neighbor_count, n * sizeof(int), cudaMemcpyDeviceToHost));
-
-    const int smem_frontier_size = block.x;
-    const size_t dynamic_smem = smem_frontier_size * sizeof(int) + sizeof(int);
-    int cluster_id = NO_CLUSTER;
-
-    for (int p = 0; p < n; p++) {
-        if (!is_core(h_neighbor_count[p], min_pts)) continue;
-
-        int h_cluster;
-        CUDA_CHECK(cudaMemcpy(&h_cluster, d_cluster + p, sizeof(int), cudaMemcpyDeviceToHost));
-        if (h_cluster != NO_CLUSTER) continue;
-
-        cluster_id++;
-
-        // Assign cluster to core point
-        CUDA_CHECK(cudaMemcpy(d_cluster + p, &cluster_id, sizeof(int), cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_frontier, &p, sizeof(int), cudaMemcpyHostToDevice));
-
-        int frontier_size = 1;
-        while (frontier_size > 0) {
-            CUDA_CHECK(cudaMemset(d_next_frontier_size, 0, sizeof(int)));
-
-            dim3 grid_frontier((frontier_size + block.x - 1) / block.x);
-
-            bfs_expand_opt<<<grid_frontier, block, dynamic_smem>>>(
-                d_cluster,
-                d_next_frontier,
-                d_next_frontier_size,
-                d_x,
-                d_y,
-                d_neighbor_count,
-                d_frontier,
-                frontier_size,
-                cluster_id,
-                n,
-                eps,
-                min_pts,
-                smem_frontier_size
-            );
-
-            CUDA_CHECK(cudaMemcpy(&frontier_size, d_next_frontier_size, sizeof(int), cudaMemcpyDeviceToHost));
-            std::swap(d_frontier, d_next_frontier);
-        }
-    }
-
-    *cluster_count = cluster_id;
-
-    CUDA_CHECK(cudaMemcpy(cluster, d_cluster, n * sizeof(int), cudaMemcpyDeviceToHost));
-
-    CUDA_CHECK(cudaFree(d_cluster));
-    CUDA_CHECK(cudaFree(d_x));
-    CUDA_CHECK(cudaFree(d_y));
-    CUDA_CHECK(cudaFree(d_neighbor_count));
-    CUDA_CHECK(cudaFree(d_frontier));
-    CUDA_CHECK(cudaFree(d_next_frontier));
-    CUDA_CHECK(cudaFree(d_next_frontier_size));
-
-    cudaDeviceReset();
-}
-
-void dbscan_gpu_grid(
-    int *cluster,
-    int *cluster_count,
-    const double *x,
-    const double *y,
-    const int n,
-    const double eps,
-    const int min_pts
-) {
-    double x_min = x[0], x_max = x[0], y_min = y[0], y_max = y[0];
-    for (int i = 1; i < n; i++) {
-        x_min = min(x_min, x[i]);
-        x_max = max(x_max, x[i]);
-        y_min = min(y_min, y[i]);
-        y_max = max(y_max, y[i]);
-    }
-
-    const int grid_width = ceil((x_max - x_min) / eps) + 1;
-    const int grid_height = ceil((y_max - y_min) / eps) + 1;
-    const int cell_count = grid_width * grid_height;
-
-    int *h_neighbor_count = (int *) malloc_s(n * sizeof(int));
-    if (!h_neighbor_count) return;
-
-    int *d_cluster;
-    double *d_x, *d_y;
-    int *d_cell_id;
-    int *d_cell_start, *d_cell_end;
-    int *d_point_idx;
-    int *d_neighbor_count;
-    int *d_frontier, *d_next_frontier;
-    int *d_next_frontier_size;
-
-    CUDA_CHECK(cudaMalloc(&d_cluster, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_x, n * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_y, n * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_cell_id, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_cell_start, cell_count * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_cell_end, cell_count * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_point_idx, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_neighbor_count, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_frontier, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_next_frontier, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_next_frontier_size, sizeof(int)));
-
-    CUDA_CHECK(cudaMemset(d_cluster, NO_CLUSTER, n * sizeof(int)));
-    CUDA_CHECK(cudaMemcpy(d_x, x, n * sizeof(double), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_y, y, n * sizeof(double), cudaMemcpyHostToDevice));
-
-    dim3 block(BLOCK_SIZE);
-    dim3 grid((n + block.x - 1) / block.x);
-
-    init_point_idx<<<grid, block>>>(d_point_idx, n);
-
-    compute_cell_id<<<grid, block>>>(d_cell_id, d_x, d_y, x_min, y_min, grid_width, n, eps);
-
-    thrust::sort_by_key(thrust::device, d_cell_id, d_cell_id + n, d_point_idx);
-
-    build_cell_offset<<<grid, block>>>(d_cell_start, d_cell_end, d_cell_id, n);
-
-    compute_neighbor_count<<<grid, block>>>(
-        d_neighbor_count, d_x, d_y, d_cell_id, d_cell_start,
-        d_cell_end, d_point_idx, grid_width, grid_height, n, eps
-    );
-
-    CUDA_CHECK(cudaMemcpy(h_neighbor_count, d_neighbor_count, n * sizeof(int), cudaMemcpyDeviceToHost));
-
-    int cluster_id = NO_CLUSTER;
-
-    for (int p = 0; p < n; p++) {
-        if (!is_core(h_neighbor_count[p], min_pts)) continue;
-
-        int h_cluster;
-        CUDA_CHECK(cudaMemcpy(&h_cluster, d_cluster + p, sizeof(int), cudaMemcpyDeviceToHost));
-        if (h_cluster != NO_CLUSTER) continue;
-
-        cluster_id++;
-
-        // Assign cluster to core point
-        CUDA_CHECK(cudaMemcpy(d_cluster + p, &cluster_id, sizeof(int), cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_frontier, &p, sizeof(int), cudaMemcpyHostToDevice));
-
-        int frontier_size = 1;
-        while (frontier_size > 0) {
-            CUDA_CHECK(cudaMemset(d_next_frontier_size, 0, sizeof(int)));
-
-            dim3 grid_frontier((frontier_size + block.x - 1) / block.x);
-
-            bfs_expand_grid<<<grid_frontier, block>>>(
                 d_cluster, d_next_frontier, d_next_frontier_size, d_x, d_y,
-                d_cell_start, d_cell_end, d_point_idx, grid_width, grid_height,
-                x_min, y_min, d_neighbor_count, d_frontier, frontier_size,
+                d_cell_starts, d_cell_offsets, d_cell_points, d_neighbor_counts, d_frontier,
+                x_min, y_min, grid_width, grid_height, frontier_size,
                 cluster_id, eps, min_pts
             );
 
@@ -579,14 +337,12 @@ void dbscan_gpu_grid(
     CUDA_CHECK(cudaFree(d_cluster));
     CUDA_CHECK(cudaFree(d_x));
     CUDA_CHECK(cudaFree(d_y));
-    CUDA_CHECK(cudaFree(d_cell_id));
-    CUDA_CHECK(cudaFree(d_cell_start));
-    CUDA_CHECK(cudaFree(d_cell_end));
-    CUDA_CHECK(cudaFree(d_point_idx));
-    CUDA_CHECK(cudaFree(d_neighbor_count));
+    CUDA_CHECK(cudaFree(d_cell_ids));
+    CUDA_CHECK(cudaFree(d_cell_starts));
+    CUDA_CHECK(cudaFree(d_cell_offsets));
+    CUDA_CHECK(cudaFree(d_cell_points));
+    CUDA_CHECK(cudaFree(d_neighbor_counts));
     CUDA_CHECK(cudaFree(d_frontier));
     CUDA_CHECK(cudaFree(d_next_frontier));
     CUDA_CHECK(cudaFree(d_next_frontier_size));
-
-    cudaDeviceReset();
 }
