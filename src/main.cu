@@ -39,7 +39,7 @@ int test() {
     double elapsed;
 
     start = clock();
-    dbscan_gpu(cluster, &cluster_count, x, y, n, EPSILON, MIN_PTS);
+    dbscan_gpu(cluster, &cluster_count, x, y, n, EPSILON(n), MIN_PTS);
     end = clock();
     elapsed = (double) (end - start) / CLOCKS_PER_SEC;
     printf("elapsed time: %f seconds\n", elapsed);
@@ -70,7 +70,7 @@ int hd_run() {
     printf("Running sequential DBSCAN...\n");
     int cluster_count_cpu;
     clock_t start = clock();
-    dbscan_cpu(cluster, &cluster_count_cpu, x, y, n, EPSILON, MIN_PTS);
+    dbscan_cpu(cluster, &cluster_count_cpu, x, y, n, EPSILON(n), MIN_PTS);
     clock_t end = clock();
     const double elapsed_cpu = (double) (end - start) / CLOCKS_PER_SEC;
     printf("Sequential DBSCAN elapsed time: %f seconds\n", elapsed_cpu);
@@ -81,7 +81,7 @@ int hd_run() {
     printf("Running sequential DBSCAN...\n");
     int cluster_count_gpu;
     start = clock();
-    dbscan_gpu(cluster, &cluster_count_gpu, x, y, n, EPSILON, MIN_PTS);
+    dbscan_gpu(cluster, &cluster_count_gpu, x, y, n, EPSILON(n), MIN_PTS);
     end = clock();
     const double elapsed_gpu = (double) (end - start) / CLOCKS_PER_SEC;
     printf("Parallel DBSCAN elapsed time: %f seconds\n", elapsed_gpu);
@@ -97,6 +97,5 @@ int hd_run() {
 }
 
 int main() {
-    const int ret = test();
-    return ret;
+    return hd_run();
 }

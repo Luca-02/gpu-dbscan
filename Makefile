@@ -5,18 +5,19 @@ init:
 	pip install -r requirements.txt
 
 FN_IN ?= input
-NC ?= 20
-XMIN ?= -5000
-XMAX ?= 5000
-YMIN ?= -5000
-YMAX ?= 5000
+N ?= 100000
+C ?= 5
 generate:
 	cd script && \
 	call .venv/Scripts/activate && \
-	python generate_points.py -fn $(FN_IN) -xmin $(XMIN) -xmax $(XMAX) -ymin $(YMIN) -ymax $(YMAX) -nc $(NC)
+	python generate_points.py -fn $(FN_IN) -n $(N) -c $(C)
 
 FN_OUT ?= output
 plot:
 	cd script && \
 	call .venv/Scripts/activate && \
 	python plot_clusters.py -fn $(FN_OUT)
+
+gen-plot:
+	make generate FN_IN=$(FN_IN) N=$(N) C=$(C) && \
+	make plot FN_OUT=$(FN_IN)

@@ -125,20 +125,20 @@ def generate_random_cluster(xmin, xmax, ymin, ymax, n, scale=1.0):
 
     if cluster_type == "banana":
         radius = random.uniform(4, 8) * scale
-        thickness = random.uniform(0.4, 0.5) * scale
+        thickness = random.uniform(0.2, 0.4) * scale
         angle_start = random.uniform(-math.pi, 0)
         angle_end = angle_start + random.uniform(2, 3)
         return generate_banana_cluster(cx, cy, radius, angle_start, angle_end, thickness, n)
 
     elif cluster_type == "ellipse":
-        a = random.uniform(2, 6) * scale
-        b = random.uniform(2, 5) * scale
+        a = random.uniform(2, 4) * scale
+        b = random.uniform(2, 4) * scale
         angle = random.uniform(0, math.pi)
         return generate_elliptical_cluster(cx, cy, a, b, angle, n)
 
     elif cluster_type == "elongated":
         length = random.uniform(8, 12) * scale
-        thickness = random.uniform(0.4, 0.5) * scale
+        thickness = random.uniform(0.2, 0.4) * scale
         angle = random.uniform(-math.pi / 2, math.pi / 2)
         return generate_elongated_cluster(cx, cy, length, angle, thickness, n)
 
@@ -216,8 +216,8 @@ def save_dataset(file_name, points):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-fn", default="input")
-    parser.add_argument("-n", type=int, default=1000)
-    parser.add_argument("-c", type=int, default=3)
+    parser.add_argument("-n", type=int, default=100000)
+    parser.add_argument("-c", type=int, default=5)
     args = parser.parse_args()
     data = generate_dataset(args.n, args.c)
     save_dataset(args.fn, data)

@@ -1,18 +1,20 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#define INPUT_FILE "../data/input.csv"
-#define OUTPUT_FILE_CPU "../data/output_cpu.csv"
-#define OUTPUT_FILE_GPU "../data/output_gpu.csv"
+#define DATA_PATH "../data/"
+
+#define INPUT_FILE DATA_PATH "input_500000.csv"
+#define OUTPUT_FILE_CPU DATA_PATH "output_cpu.csv"
+#define OUTPUT_FILE_GPU DATA_PATH "output_gpu.csv"
 
 /**
  * @brief The maximum Euclidean distance between two points to consider them neighbors.
  */
-#define EPSILON 100
+#define EPSILON(n) (0.3 * sqrt(n))
 /**
  * @brief The minimum number of points to form a dense region.
  */
-#define MIN_PTS 50
+#define MIN_PTS 8
 
 /**
  * @brief Default cluster id.
