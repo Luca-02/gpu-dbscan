@@ -1,10 +1,9 @@
 #ifndef GPU_DBSCAN_H
 #define GPU_DBSCAN_H
 
-__global__ void init_cell_points(int *cell_points, int n);
-
-__global__ void compute_cell_ids(
+__global__ void binning(
     int *cell_ids,
+    int *cell_points,
     const double *x,
     const double *y,
     double x_min,
@@ -14,14 +13,14 @@ __global__ void compute_cell_ids(
     double eps
 );
 
-__global__ void compute_cell_offsets(
+__global__ void bin_extremes(
     int *cell_starts,
     int *cell_offsets,
     const int *cell_ids,
     int n
 );
 
-__global__ void compute_neighbor_counts(
+__global__ void neighbor_counts(
     int *neighbor_counts,
     const double *x,
     const double *y,

@@ -4,17 +4,11 @@
 #include "helper.h"
 
 #define BLOCK_SIZE 1024
+#define BFS_BLOCK_SIZE 128
 
-__global__ void init_cell_points(int *cell_points, const int n) {
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (idx < n) {
-        cell_points[idx] = idx;
-    }
-}
-
-__global__ void compute_cell_ids(
+__global__ void binning(
     int *cell_ids,
+    int *cell_points,
     const double *x,
     const double *y,
     const double x_min,
@@ -28,10 +22,12 @@ __global__ void compute_cell_ids(
 
     int cx, cy;
     cell_coordinates(&cx, &cy, x[tid], y[tid], x_min, y_min, eps);
+
     cell_ids[tid] = cy * grid_width + cx;
+    cell_points[tid] = tid;
 }
 
-__global__ void compute_cell_offsets(
+__global__ void bin_extremes(
     int *cell_starts,
     int *cell_offsets,
     const int *cell_ids,
@@ -51,7 +47,7 @@ __global__ void compute_cell_offsets(
     }
 }
 
-__global__ void compute_neighbor_counts(
+__global__ void neighbor_counts(
     int *neighbor_counts,
     const double *x,
     const double *y,
@@ -76,7 +72,10 @@ __global__ void compute_neighbor_counts(
     const int cy = cid / grid_width;
 
     int count = 0;
+
+    #pragma unroll
     for (int dx = -1; dx <= 1; dx++) {
+        #pragma unroll
         for (int dy = -1; dy <= 1; dy++) {
             const int nx = cx + dx;
             const int ny = cy + dy;
@@ -168,6 +167,7 @@ __global__ void bfs_expand_opt(
     }
 }
 
+// TODO check for two-phase BFS optimization (pro style)
 __global__ void bfs_expand(
     int *cluster,
     int *next_frontier,
@@ -198,7 +198,9 @@ __global__ void bfs_expand(
     int cx, cy;
     cell_coordinates(&cx, &cy, xi, yi, x_min, y_min, eps);
 
+    #pragma unroll
     for (int dx = -1; dx <= 1; dx++) {
+        #pragma unroll
         for (int dy = -1; dy <= 1; dy++) {
             const int nx = cx + dx;
             const int ny = cy + dy;
@@ -281,15 +283,13 @@ void dbscan_gpu(
     dim3 block(BLOCK_SIZE);
     dim3 grid((n + block.x - 1) / block.x);
 
-    init_cell_points<<<grid, block>>>(d_cell_points, n);
-
-    compute_cell_ids<<<grid, block>>>(d_cell_ids, d_x, d_y, x_min, y_min, grid_width, n, eps);
+    binning<<<grid, block>>>(d_cell_ids, d_cell_points, d_x, d_y, x_min, y_min, grid_width, n, eps);
 
     thrust::sort_by_key(thrust::device, d_cell_ids, d_cell_ids + n, d_cell_points);
 
-    compute_cell_offsets<<<grid, block>>>(d_cell_starts, d_cell_offsets, d_cell_ids, n);
+    bin_extremes<<<grid, block>>>(d_cell_starts, d_cell_offsets, d_cell_ids, n);
 
-    compute_neighbor_counts<<<grid, block>>>(
+    neighbor_counts<<<grid, block>>>(
         d_neighbor_counts, d_x, d_y, d_cell_ids, d_cell_starts,
         d_cell_offsets, d_cell_points, grid_width, grid_height, n, eps
     );
@@ -297,6 +297,7 @@ void dbscan_gpu(
     CUDA_CHECK(cudaMemcpy(h_neighbor_counts, d_neighbor_counts, n * sizeof(int), cudaMemcpyDeviceToHost));
 
     int cluster_id = NO_CLUSTER;
+    dim3 bfs_block(BFS_BLOCK_SIZE);
 
     for (int p = 0; p < n; p++) {
         if (!is_core(h_neighbor_counts[p], min_pts)) continue;
@@ -307,8 +308,8 @@ void dbscan_gpu(
 
         cluster_id++;
 
-        // Assign cluster to core point
         // TODO add this from the kernel in the loop
+        // Assign cluster to core point
         CUDA_CHECK(cudaMemcpy(d_cluster + p, &cluster_id, sizeof(int), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_frontier, &p, sizeof(int), cudaMemcpyHostToDevice));
 
@@ -316,9 +317,9 @@ void dbscan_gpu(
         while (frontier_size > 0) {
             CUDA_CHECK(cudaMemset(d_next_frontier_size, 0, sizeof(int)));
 
-            dim3 grid_frontier((frontier_size + block.x - 1) / block.x);
+            dim3 bfs_grid((frontier_size + bfs_block.x - 1) / bfs_block.x);
 
-            bfs_expand<<<grid_frontier, block>>>(
+            bfs_expand<<<bfs_grid, bfs_block>>>(
                 d_cluster, d_next_frontier, d_next_frontier_size, d_x, d_y,
                 d_cell_starts, d_cell_offsets, d_cell_points, d_neighbor_counts, d_frontier,
                 x_min, y_min, grid_width, grid_height, frontier_size,

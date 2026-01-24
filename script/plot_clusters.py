@@ -6,23 +6,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 
-def plot_clusters(file_name):
-    """
-    Plots clustered 2D points from a text file.
-    Points with a negative cluster label are treated as outliers
-    and plotted in black. All other points are colored by cluster.
-
-    :param file_name: Name of the input file, located in the ../data/ directory
-    """
-    data = np.loadtxt(f"../data/{file_name}.csv", delimiter=",", skiprows=1)
-
-    x = data[:, 0]
-    y = data[:, 1]
-
-    # If the file has 3 column use cluster column, otherwise set default cluster to -1
-    if data.shape[1] >= 3:
-        clusters = data[:, 2].astype(int)
-    else:
+def plot(title, x, y, clusters=None):
+    if clusters is None:
         clusters = -1 * np.ones(x.shape, dtype=int)
 
     cluster_dict = defaultdict(list)
@@ -30,7 +15,7 @@ def plot_clusters(file_name):
     for xi, yi, ci in zip(x, y, clusters):
         cluster_dict[ci].append((xi, yi))
 
-    plt.figure(file_name, figsize=(8, 8))
+    plt.figure(title, figsize=(8, 8))
 
     legend_elements = []
     for cluster_id, points in cluster_dict.items():
@@ -48,7 +33,7 @@ def plot_clusters(file_name):
                        linestyle='None', markersize=10, label=f"Cluster {cluster_id}")
             )
 
-    plt.title(file_name)
+    plt.title(title)
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.grid(True)
@@ -61,6 +46,26 @@ def plot_clusters(file_name):
     # )
     # plt.tight_layout()
     plt.show()
+
+
+def plot_clusters(file_name):
+    """
+    Plots clustered 2D points from a text file.
+    Points with a negative cluster label are treated as outliers
+    and plotted in black. All other points are colored by cluster.
+
+    :param file_name: Name of the input file, located in the ../data/ directory
+    """
+    data = np.loadtxt(f"../data/{file_name}.csv", delimiter=",", skiprows=1)
+
+    x = data[:, 0]
+    y = data[:, 1]
+
+    # If the file has 3 column use cluster column, otherwise set default cluster to -1
+    if data.shape[1] >= 3:
+        plot(file_name, x, y, data[:, 2].astype(int))
+    else:
+        plot(file_name, x, y)
 
 
 if __name__ == "__main__":

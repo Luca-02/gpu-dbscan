@@ -98,7 +98,7 @@ int find_neighbors(
     return count;
 }
 
-static void expand_cluster(
+void expand_cluster(
     int *cluster,
     int *queue,
     int *neighbors_buf,
