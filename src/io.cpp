@@ -16,11 +16,11 @@ static void cleanup(FILE *file, double **x, double **y) {
 }
 
 /**
- * @brief Parses a CSV input file containing points in 2D space.
+ * @brief Parses a CSV dataset file containing points in 2D space.
  * The CSV file is expected to have a header line, followed by lines containing
  * two floating-point numbers separated by a comma, representing x and y coordinates.
  *
- * @param filename The path to the CSV input file.
+ * @param filename The path to the CSV dataset file.
  * @param x Pointer to a double pointer where the x-coordinates array will be stored.
  * @param y Pointer to a double pointer where the y-coordinates array will be stored.
  * @param n Pointer to where the number of points will be stored.
@@ -28,7 +28,7 @@ static void cleanup(FILE *file, double **x, double **y) {
  *
  * @note Memory for x and y arrays is dynamically allocated using malloc and must be freed by the caller.
  */
-bool parse_input_file(const char *filename, double **x, double **y, int *n) {
+bool parse_dataset_file(const char *filename, double **x, double **y, int *n) {
     *x = nullptr, *y = nullptr;
     *n = 0;
     char line[512];
@@ -96,7 +96,7 @@ bool parse_input_file(const char *filename, double **x, double **y, int *n) {
 }
 
 /**
- * @brief Writes a CSV output file containing points and their assigned cluster IDs.
+ * @brief Writes a CSV dbscan file containing points and their assigned cluster IDs.
  * The output file will have a header line "x,y,cluster" and then one line per point,
  * listing its x and y coordinates and the corresponding cluster ID.
  *
@@ -108,7 +108,7 @@ bool parse_input_file(const char *filename, double **x, double **y, int *n) {
  *
  * @note The arrays x, y, and cluster must have at least n elements.
  */
-void write_output_file(const char *filename, const double *x, const double *y, const int *cluster, const int n) {
+void write_dbscan_file(const char *filename, const double *x, const double *y, const int *cluster, const int n) {
     FILE *file = fopen(filename, "w");
     if (!file) {
         fprintf(stderr, "Error opening file %s\n", filename);

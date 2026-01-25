@@ -3,9 +3,9 @@
 
 #define DATA_PATH "../data/"
 
-#define INPUT_FILE DATA_PATH "input_500000.csv"
-#define OUTPUT_FILE_CPU DATA_PATH "output_cpu.csv"
-#define OUTPUT_FILE_GPU DATA_PATH "output_gpu.csv"
+#define INPUT_FILE DATA_PATH "dataset_1000000.csv"
+#define OUTPUT_FILE_CPU DATA_PATH "dbscan_1000000_cpu.csv"
+#define OUTPUT_FILE_GPU DATA_PATH "dbscan_1000000_gpu.csv"
 
 /**
  * @brief The maximum Euclidean distance between two points to consider them neighbors.
