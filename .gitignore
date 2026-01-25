@@ -1,7 +1,8 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python,c,c++,clion,cmake,pycharm,visualstudiocode,visualstudio
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,c,c++,clion,cmake,pycharm,visualstudiocode,visualstudio
 
-data
+data_in
+data_out
 .idea
 
 ### C ###
