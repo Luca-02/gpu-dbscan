@@ -171,6 +171,7 @@ def generate_dataset(
     n_noise = int(n * noise_ratio)
     n_clusters = n - n_noise
     base_cluster_size = n_clusters // c
+    remaining_cluster_size = n_clusters % c
 
     centers = rng.uniform(
         low=-center_scale,
@@ -190,9 +191,10 @@ def generate_dataset(
     for i in range(c):
         gen: ClusterGenerator = rng.choice(generators)
         thickness = rng.uniform(0.8, 1.2) * std_scale
+        extra_size = 1 if i < remaining_cluster_size else 0
 
         points = gen.generate(
-            size=base_cluster_size,
+            size=base_cluster_size + extra_size,
             center=centers[i],
             thickness=thickness,
             rng=rng
@@ -213,7 +215,7 @@ def save_dataset(file_name, data):
     :param file_name: Name of the dataset file (without extension)
     :param data: Numpy array of shape (n, 2) containing dataset points
     """
-    folder = "../data"
+    folder = "../data_in"
     os.makedirs(folder, exist_ok=True)
 
     path = os.path.join(folder, f"{file_name}.csv")

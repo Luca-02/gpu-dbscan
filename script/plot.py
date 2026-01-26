@@ -24,36 +24,42 @@ def plot(x, y, clusters=None, title="Space"):
     for xi, yi, ci in zip(x, y, clusters):
         cluster_dict[ci].append((xi, yi))
 
-    plt.figure(title, figsize=(8, 8))
+    plt.figure(title, figsize=(10, 8))
 
     legend_elements = []
+    there_is_noise = False
+    dot_size = 1
+
     for cluster_id, points in cluster_dict.items():
         points = np.array(points)
         if cluster_id <= 0:
-            plt.scatter(points[:, 0], points[:, 1], c="black", s=0.1, label="Outlier")
-            legend_elements.append(
-                Line2D([0], [0], marker='o', color='black',
-                       linestyle='None', markersize=10, label="Outlier")
-            )
+            plt.scatter(points[:, 0], points[:, 1], c="black", s=dot_size, label="Outlier")
+            there_is_noise = True
         else:
-            sc = plt.scatter(points[:, 0], points[:, 1], s=0.1, label=f"Cluster {cluster_id}")
-            legend_elements.append(
-                Line2D([0], [0], marker='o', color=sc.get_facecolor()[0],
-                       linestyle='None', markersize=10, label=f"Cluster {cluster_id}")
-            )
+            sc = plt.scatter(points[:, 0], points[:, 1], s=dot_size, label=f"Cluster {cluster_id}")
+            cluster_legent_item = Line2D(
+                [0], [0], marker='o', color=sc.get_facecolor()[0],
+                linestyle='None', markersize=10, label=f"Cluster {int(cluster_id)}")
+            legend_elements.append(cluster_legent_item)
+
+    if there_is_noise:
+        noise_legend_item = Line2D(
+            [0], [0], marker='o', color='black',
+            linestyle='None', markersize=10, label="Outlier")
+        legend_elements.insert(0, noise_legend_item)
 
     plt.title(title)
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.grid(True)
     plt.axis("equal")
-    # plt.legend(
-    #     handles=legend_elements,
-    #     loc="center left",
-    #     bbox_to_anchor=(1.02, 0.5),
-    #     borderaxespad=0
-    # )
-    # plt.tight_layout()
+    plt.legend(
+        handles=legend_elements,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        borderaxespad=0
+    )
+    plt.tight_layout()
     plt.show()
 
 
@@ -64,7 +70,7 @@ def read_dataset(file_name):
     :param file_name: Name of the dataset file (without extension)
     :return: Numpy array of shape (n,2) or (n,3)
     """
-    return np.loadtxt(f"../data/{file_name}.csv", delimiter=",", skiprows=1)
+    return np.loadtxt(f"../data_out/{file_name}.csv", delimiter=",", skiprows=1)
 
 
 if __name__ == "__main__":

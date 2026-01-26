@@ -1,15 +1,30 @@
 #ifndef CPU_DBSCAN_H
 #define CPU_DBSCAN_H
 
+/**
+ * @struct Grid
+ * @brief Uniform grid structure used to accelerate neighbor searches in DBSCAN.
+ *
+ * The grid partitions the 2D space into square cells of size `cell_size`.
+ * Each cell stores indices of points that belong to it. This allows
+ * efficient lookup of neighbors within a given radius.
+ */
 typedef struct {
-    int width, height;
-    double cell_size;
-    double x_min, y_min;
-    int *cell_start;
-    int *cell_offset;
-    int *cell_points;
+    int *cell_start;    /**< Starting index of points for each cell in `cell_points` array */
+    int *cell_offset;   /**< Number of points currently in each cell */
+    int *cell_points;   /**< Array storing indices of points for all cells */
+    int width;          /**< Number of cells along the x-axis */
+    int height;         /**< Number of cells along the y-axis */
+    double cell_size;   /**< Size of each cell (corresponds to epsilon) */
+    double x_min;       /**< Minimum x coordinate of the points */
+    double y_min;       /**< Minimum y coordinate of the points */
 } Grid;
 
+/**
+ * @brief Frees the memory allocated for the grid.
+ *
+ * @param grid Pointer to the grid to free.
+ */
 inline void free_grid(Grid *grid) {
     if (grid->cell_start) free(grid->cell_start);
     if (grid->cell_offset) free(grid->cell_offset);
@@ -19,39 +34,23 @@ inline void free_grid(Grid *grid) {
     grid->cell_points = nullptr;
 }
 
-bool init_grid(
-    Grid *grid,
-    const double *x,
-    const double *y,
-    int n,
-    double eps
-);
-
-int find_neighbors(
-    int *neighbor,
-    const Grid *grid,
-    const double *x,
-    const double *y,
-    int i
-);
-
-void expand_cluster(
-    int *cluster,
-    int *queue,
-    int *neighbors_buf,
-    const Grid *grid,
-    const double *x,
-    const double *y,
-    int min_pts,
-    int cluster_id,
-    int i
-);
-
+/**
+ * @brief Performs DBSCAN clustering on a set of 2D points using the CPU.
+ * Each point is assigned a cluster label or `NO_CLUSTER_LABEL` if it is considered noise.
+ *
+ * @param cluster Each element is the cluster label for the corresponding point.
+ * @param cluster_count Pointer to an integer where the number of clusters found will be stored.
+ * @param points Array of size `2 * n` containing the 2D coordinates of points (x0, y0, x1, y1, ...).
+ * @param n Number of points.
+ * @param eps Neighborhood radius for DBSCAN.
+ * @param min_pts Minimum number of points required to form a core point.
+ *
+ * @note The array cluster and points must have [n] and [n * 2] elements.
+ */
 void dbscan_cpu(
     int *cluster,
     int *cluster_count,
-    const double *x,
-    const double *y,
+    const double *points,
     int n,
     double eps,
     int min_pts
