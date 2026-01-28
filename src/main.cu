@@ -2,109 +2,147 @@
 #include <cstdio>
 #include <ctime>
 #include "helper.h"
+#include "cuda_helper.h"
 #include "io.h"
 #include "common.h"
 #include "cpu_dbscan.h"
 #include "gpu_dbscan.h"
 
-void free_resource(double **points, int **cluster_cpu, int **cluster_gpu) {
-    if (*points) free(*points);
-    if (*cluster_cpu) free(*cluster_cpu);
-    if (*cluster_gpu) free(*cluster_gpu);
-    *points = nullptr;
-    *cluster_cpu = nullptr;
-    *cluster_gpu = nullptr;
+typedef void (*dbscanFn)(int *, int *, const double *, const double *, int, double, int);
+
+void freeResource(double **x, double **y, int **clusterCpu, int **clusterGpu) {
+    if (*x) free(*x);
+    if (*y) free(*y);
+    if (*clusterCpu) free(*clusterCpu);
+    if (*clusterGpu) free(*clusterGpu);
+    *x = nullptr;
+    *y = nullptr;
+    *clusterCpu = nullptr;
+    *clusterGpu = nullptr;
 }
 
 void assertion(
-    const int* cluster_cpu,
-    const int* cluster_gpu,
-    const int cluster_count_cpu,
-    const int cluster_count_gpu,
+    const int *clusterCpu,
+    const int *clusterGpu,
+    const int clusterCountCpu,
+    const int clusterCountGpu,
     const int n
 ) {
-    assert(cluster_count_cpu == cluster_count_gpu);
+    assert(clusterCountCpu == clusterCountGpu);
 
     for (int i = 0; i < n; i++) {
-        assert(cluster_cpu[i] == cluster_gpu[i]);
+        assert(clusterCpu[i] == clusterGpu[i]);
     }
 }
 
+bool loadDataset(double **x, double **y, int *n) {
+    if (!parseDatasetFile(INPUT_FILE, x, y, n)) {
+        fprintf(stderr, "Error parsing points file\n");
+        return false;
+    }
+    printf("Processing %s [n: %d, eps: %f, min_pts:%d].\n",
+        INPUT_FILE, *n, EPSILON, MIN_PTS);
+    return true;
+}
+
+double runDbscan(
+    int *cluster,
+    int *clusterCount,
+    const char *label,
+    const dbscanFn dbscan,
+    const double *x,
+    const double *y,
+    const int n,
+    const char *outputFile
+) {
+    printf("Running %s DBSCAN...\n", label);
+
+    const clock_t start = clock();
+    dbscan(cluster, clusterCount, x, y, n, EPSILON, MIN_PTS);
+    const clock_t end = clock();
+
+    const double elapsed = (double) (end - start) / CLOCKS_PER_SEC;
+    printf("%s DBSCAN elapsed time: %f s\n", label, elapsed);
+
+    writeDbscanFile(outputFile, x, y, cluster, n);
+    return elapsed;
+}
+
 int test() {
-    double *points;
+    double *x, *y;
     int n;
 
-    if (!parse_dataset_file(INPUT_FILE, &points, &n)) {
-        fprintf(stderr, "Error parsing points file\n");
+    if (!loadDataset(&x, &y, &n)) {
         return EXIT_FAILURE;
     }
 
-    int *cluster = (int *) malloc_s(n * sizeof(int));
-    int cluster_count;
-    if (!cluster) {
-        free_resource(&points, &cluster, nullptr);
+    int *cluster_cpu = (int *) malloc_s(n * sizeof(int));
+    int *cluster_gpu = (int *) malloc_s(n * sizeof(int));
+    if (!cluster_cpu || !cluster_gpu) {
+        freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
         return EXIT_FAILURE;
     }
 
-    clock_t start, end;
-    double elapsed;
+    int cluster_count_gpu;
 
-    start = clock();
-    dbscan_cpu(cluster, &cluster_count, points, n, EPSILON, MIN_PTS);
-    end = clock();
-    elapsed = (double) (end - start) / CLOCKS_PER_SEC;
-    printf("elapsed time: %f seconds\n", elapsed);
-    write_dbscan_file(OUTPUT_FILE_CPU, points, cluster, n);
+    runDbscan(
+        cluster_gpu,
+        &cluster_count_gpu,
+        "Parallel",
+        dbscan_gpu,
+        x, y, n,
+        OUTPUT_FILE_GPU
+    );
 
-    free_resource(&points, &cluster, nullptr);
+    freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
     return EXIT_SUCCESS;
 }
 
 int hd_run() {
-    double *points;
+    double *x, *y;
     int n;
 
-    if (!parse_dataset_file(INPUT_FILE, &points, &n)) {
-        fprintf(stderr, "Error parsing points file\n");
+    if (!loadDataset(&x, &y, &n)) {
         return EXIT_FAILURE;
     }
-
-    printf("Processing %s with %u points.\n", INPUT_FILE, n);
 
     int *cluster_cpu = (int *) malloc_s(n * sizeof(int));
     int *cluster_gpu = (int *) malloc_s(n * sizeof(int));
-    int cluster_count_cpu;
-    int cluster_count_gpu;
     if (!cluster_cpu || !cluster_gpu) {
-        free_resource(&points, &cluster_cpu, &cluster_gpu);
+        freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
         return EXIT_FAILURE;
     }
 
-    printf("Running sequential DBSCAN...\n");
-    clock_t start = clock();
-    dbscan_cpu(cluster_cpu, &cluster_count_cpu, points, n, EPSILON, MIN_PTS);
-    clock_t end = clock();
-    const double elapsed_cpu = (double) (end - start) / CLOCKS_PER_SEC;
-    printf("Sequential DBSCAN elapsed time: %f s\n", elapsed_cpu);
-    write_dbscan_file(OUTPUT_FILE_CPU, points, cluster_cpu, n);
+    int cluster_count_cpu, cluster_count_gpu;
 
-    printf("Running sequential DBSCAN...\n");
-    start = clock();
-    dbscan_gpu(cluster_gpu, &cluster_count_gpu, points, n, EPSILON, MIN_PTS);
-    end = clock();
-    const double elapsed_gpu = (double) (end - start) / CLOCKS_PER_SEC;
-    printf("Parallel DBSCAN elapsed time: %f s\n", elapsed_gpu);
-    write_dbscan_file(OUTPUT_FILE_GPU, points, cluster_gpu, n);
+    const double elapsed_cpu = runDbscan(
+        cluster_cpu,
+        &cluster_count_cpu,
+        "Sequential",
+        dbscanCpu,
+        x, y, n,
+        OUTPUT_FILE_CPU
+    );
 
-    const double speedup = elapsed_cpu / elapsed_gpu;
-    printf("Speedup: %f\n", speedup);
+    const double elapsed_gpu = runDbscan(
+        cluster_gpu,
+        &cluster_count_gpu,
+        "Parallel",
+        dbscan_gpu,
+        x, y, n,
+        OUTPUT_FILE_GPU
+    );
+
+    printf("Speedup: %f\n", elapsed_cpu / elapsed_gpu);
 
     assertion(cluster_cpu, cluster_gpu, cluster_count_cpu, cluster_count_gpu, n);
 
-    free_resource(&points, &cluster_cpu, &cluster_gpu);
+    freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
     return EXIT_SUCCESS;
 }
 
+// TODO rename all using CamelCase naming convention, better
 int main() {
-    return hd_run();
+    // deviceFeat();
+    return test();
 }

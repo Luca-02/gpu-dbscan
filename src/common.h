@@ -4,11 +4,11 @@
 #define DATA_IN_PATH "../data_in/"
 #define DATA_OUT_PATH "../data_out/"
 
-#define INPUT_FILE DATA_IN_PATH "dataset_10000.csv"
-#define OUTPUT_FILE_CPU DATA_OUT_PATH "dbscan_10000_cpu.csv"
-#define OUTPUT_FILE_GPU DATA_OUT_PATH "dbscan_10000_gpu.csv"
+#define INPUT_FILE DATA_IN_PATH "dataset_1000000n_30c_100d0cs_3d0std_0d001nr.csv"
+#define OUTPUT_FILE_CPU DATA_OUT_PATH "cpu.csv"
+#define OUTPUT_FILE_GPU DATA_OUT_PATH "gpu.csv"
 
-#define EPSILON 0.3
+#define EPSILON 3.0
 #define MIN_PTS 8
 #define NO_CLUSTER_LABEL 0
 
@@ -26,21 +26,21 @@
  * @param cy Pointer to store the calculated y coordinate of the cell.
  * @param x The x coordinate of the point.
  * @param y The y coordinate of the point.
- * @param x_min The minimum x coordinate of the grid.
- * @param y_min The minimum y coordinate of the grid.
- * @param eps The epsilon distance.
+ * @param xMin The minimum x coordinate of the grid.
+ * @param yMin The minimum y coordinate of the grid.
+ * @param invEps The inverse of the epsilon distance.
  */
-HD inline void point_cell_coordinates(
+HD inline void pointCellCoordinates(
     int *cx,
     int *cy,
     const double x,
     const double y,
-    const double x_min,
-    const double y_min,
-    const double eps
+    const double xMin,
+    const double yMin,
+    const double invEps
 ) {
-    *cx = (int) ((x - x_min) / eps);
-    *cy = (int) ((y - y_min) / eps);
+    *cx = (int) ((x - xMin) * invEps);
+    *cy = (int) ((y - yMin) * invEps);
 }
 
 /**
@@ -52,7 +52,7 @@ HD inline void point_cell_coordinates(
  * @param width The width of the grid.
  * @return The cell ID.
  */
-HD inline int cell_id(const int cx, const int cy, const int width) {
+HD inline int linearCellId(const int cx, const int cy, const int width) {
     return cy * width + cx;
 }
 
@@ -60,13 +60,13 @@ HD inline int cell_id(const int cx, const int cy, const int width) {
  * @brief Checks if a point is a core point based on its degree and minimum number of points.
  *
  * @param degree The degree of the point.
- * @param min_pts The minimum number of points.
+ * @param minPts The minimum number of points.
  * @return True if the point is a core point, false otherwise.
  *
  * @note The point itself is counted in the degree.
  */
-HD inline bool is_core(const int degree, const int min_pts) {
-    return degree + 1 >= min_pts;
+HD inline bool isCore(const int degree, const int minPts) {
+    return degree + 1 >= minPts;
 }
 
 /**
@@ -81,7 +81,7 @@ HD inline bool is_core(const int degree, const int min_pts) {
  *
  * @note This implementation avoids the use of sqrt by checking the squared distance instead.
  */
-HD inline bool is_eps_neighbor(
+HD inline bool isEpsNeighbor(
     const double x1,
     const double y1,
     const double x2,

@@ -14,6 +14,22 @@ class ClusterGenerator(ABC):
     Subclasses must implement the generate() method.
     """
 
+    def __init__(
+            self,
+            n: int,
+            c: int,
+            center_scale: float,
+            std_scale: float,
+            noise_ratio: float,
+            random_state: int,
+    ):
+        self.n = n
+        self.c = c
+        self.center_scale = center_scale
+        self.std_scale = std_scale
+        self.noise_ratio = noise_ratio
+        self.random_state = random_state
+
     @abstractmethod
     def generate(
             self,
@@ -92,7 +108,10 @@ class BananaGenerator(ClusterGenerator):
             random_state=rng.integers(1e9)
         )
 
-        curvature = rng.uniform(1.0, 2.0)
+        reference_scale = 10.0
+        scale_factor = reference_scale / self.center_scale
+
+        curvature = rng.uniform(1.0, 2.0) * scale_factor
         theta = rng.uniform(0, 2 * np.pi)
 
         rotation = np.array([
@@ -110,12 +129,15 @@ class MoonGenerator(ClusterGenerator):
     """
 
     def generate(self, size, center, thickness, rng):
+        reference_scale = 10.0
+        scale_factor = reference_scale / self.center_scale
+
         points, _ = make_moons(
             n_samples=size,
-            noise=thickness * 0.3,
+            noise=thickness * 0.3 * scale_factor,
             random_state=rng.integers(1e9)
         )
-        scale = rng.uniform(1.0, 2.0)
+        scale = rng.uniform(1.0, 2.0) / scale_factor
         theta = rng.uniform(0, 2 * np.pi)
 
         rotation = np.array([
@@ -179,11 +201,13 @@ def generate_dataset(
         size=(c, 2)
     )
 
+    param = [n, c, center_scale, std_scale, noise_ratio, random_state]
+
     generators: list[ClusterGenerator] = [
-        CircleGenerator(),
-        EllipseGenerator(),
-        BananaGenerator(),
-        MoonGenerator(),
+        CircleGenerator(*param),
+        EllipseGenerator(*param),
+        BananaGenerator(*param),
+        MoonGenerator(*param),
     ]
 
     clusters = []
@@ -208,17 +232,29 @@ def generate_dataset(
     return np.vstack([points, noise])
 
 
-def save_dataset(file_name, data):
+def save_dataset(file_name, data, n, c, center_scale, std_scale, noise_ratio):
     """
     Saves a 2D dataset to a CSV file with headers "x,y".
 
     :param file_name: Name of the dataset file (without extension)
     :param data: Numpy array of shape (n, 2) containing dataset points
+    :param n: Total number of points
+    :param c: Number of clusters
+    :param center_scale: Scale for random cluster center positions
+    :param std_scale: Base standard deviation for clusters
+    :param noise_ratio: Fraction of points to generate as noise
     """
     folder = "../data_in"
     os.makedirs(folder, exist_ok=True)
 
-    path = os.path.join(folder, f"{file_name}.csv")
+    center_scale_str = str(center_scale).replace('.', 'd')
+    std_scale_str = str(std_scale).replace('.', 'd')
+    noise_ratio_str = str(noise_ratio).replace('.', 'd')
+
+    path = os.path.join(
+        folder,
+        f"{file_name}_{n}n_{c}c_{center_scale_str}cs_{std_scale_str}std_{noise_ratio_str}nr.csv"
+    )
     print(f"Saving in {str(path).replace('\\', '/')}")
 
     with open(path, "w", newline="") as f:
@@ -228,9 +264,10 @@ def save_dataset(file_name, data):
 
 
 if __name__ == "__main__":
+    default_n = 10000,
     parser = argparse.ArgumentParser(description="Generate synthetic 2D dataset.")
     parser.add_argument("-fn", default="input", help="CSV dataset file name (without extension)")
-    parser.add_argument("-n", type=int, default=100000, help="Total number of points including noise")
+    parser.add_argument("-n", type=int, nargs="+", default=default_n, help="List of total points for each dataset")
     parser.add_argument("-c", type=int, default=30, help="Number of clusters")
     parser.add_argument("-cs", type=float, default=10.0, help="Scale for random cluster centers")
     parser.add_argument("-std", type=float, default=0.3, help="Base cluster standard deviation")
@@ -238,12 +275,22 @@ if __name__ == "__main__":
     parser.add_argument("-r", type=int, default=0, help="Random seed")
     args = parser.parse_args()
 
-    dataset = generate_dataset(
-        n=args.n,
-        c=args.c,
-        center_scale=args.cs,
-        std_scale=args.std,
-        noise_ratio=args.nr,
-        random_state=args.r
-    )
-    save_dataset(file_name=args.fn, data=dataset)
+    for n in args.n:
+        dataset = generate_dataset(
+            n=n,
+            c=args.c,
+            center_scale=args.cs,
+            std_scale=args.std,
+            noise_ratio=args.nr,
+            random_state=args.r
+        )
+        save_dataset(
+            file_name=args.fn,
+            data=dataset,
+            n=n,
+            c=args.c,
+            center_scale=args.cs,
+            std_scale=args.std,
+            noise_ratio=args.nr
+        )
+    print("All datasets generated successfully.")

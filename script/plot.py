@@ -33,10 +33,10 @@ def plot(x, y, clusters=None, title="Space"):
     for cluster_id, points in cluster_dict.items():
         points = np.array(points)
         if cluster_id <= 0:
-            plt.scatter(points[:, 0], points[:, 1], c="black", s=dot_size, label="Outlier")
+            plt.scatter(points[:, 0], points[:, 1], c="black", s=dot_size)
             there_is_noise = True
         else:
-            sc = plt.scatter(points[:, 0], points[:, 1], s=dot_size, label=f"Cluster {cluster_id}")
+            sc = plt.scatter(points[:, 0], points[:, 1], s=dot_size)
             cluster_legent_item = Line2D(
                 [0], [0], marker='o', color=sc.get_facecolor()[0],
                 linestyle='None', markersize=10, label=f"Cluster {int(cluster_id)}")

@@ -3,11 +3,12 @@
 
 void dbscan_gpu(
     int *cluster,
-    int *cluster_count,
-    const double *points,
+    int *clusterCount,
+    const double *x,
+    const double *y,
     int n,
     double eps,
-    int min_pts
+    int minPts
 );
 
 #endif

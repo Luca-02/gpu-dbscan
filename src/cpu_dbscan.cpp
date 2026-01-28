@@ -11,7 +11,7 @@
  * @param neighbors Pointer to the pointer of the neighbors buffer array.
  */
 static void cleanup(Grid *grid, int **queue, int **neighbors) {
-    free_grid(grid);
+    freeGrid(grid);
     if (*queue) free(*queue);
     if (*neighbors) free(*neighbors);
     *queue = nullptr;
@@ -24,77 +24,73 @@ static void cleanup(Grid *grid, int **queue, int **neighbors) {
  * grid structure, and assigns each point to its corresponding cell.
  *
  * @param grid Pointer to the Grid to initialize.
- * @param points Flattened array of 2D points.
+ * @param x Pointer to the array of x coordinates corresponding to each point.
+ * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param n Number of points.
  * @param eps Neighborhood radius (cell size).
  * @return True if the grid was successfully initialized, false otherwise.
  */
-bool init_grid(Grid *grid, const double *points, const int n, const double eps) {
-    double x_min = points[X_INDEX(0)], x_max = points[X_INDEX(0)];
-    double y_min = points[Y_INDEX(0)], y_max = points[Y_INDEX(0)];
+bool initGrid(Grid *grid, const double *x, const double *y, const int n, const double eps) {
+    double xMin = x[0], xMax = x[0];
+    double yMin = y[0], yMax = y[0];
 
     for (int i = 1; i < n; i++) {
-        x_min = fmin(x_min, points[X_INDEX(i)]);
-        x_max = fmax(x_max, points[X_INDEX(i)]);
-        y_min = fmin(y_min, points[Y_INDEX(i)]);
-        y_max = fmax(y_max, points[Y_INDEX(i)]);
+        xMin = fmin(xMin, x[i]);
+        xMax = fmax(xMax, x[i]);
+        yMin = fmin(yMin, y[i]);
+        yMax = fmax(yMax, y[i]);
     }
 
-    grid->x_min = x_min;
-    grid->y_min = y_min;
-    grid->cell_size = eps;
+    grid->xMin = xMin;
+    grid->yMin = yMin;
+    grid->eps = eps;
 
-    grid->width = ceil((x_max - grid->x_min) / eps + 1);
-    grid->height = ceil((y_max - grid->y_min) / eps + 1);
+    grid->width = ceil((xMax - grid->xMin) / eps + 1);
+    grid->height = ceil((yMax - grid->yMin) / eps + 1);
 
-    const int cell_count = grid->width * grid->height;
+    const int cellCount = grid->width * grid->height;
+    const double invEps = 1.0 / grid->eps;
 
-    grid->cell_start = (int *) malloc_s(cell_count * sizeof(int));
-    grid->cell_offset = (int *) calloc_s(cell_count, sizeof(int));
-    grid->cell_points = (int *) malloc_s(n * sizeof(int));
-    if (!grid->cell_start || !grid->cell_offset || !grid->cell_points) {
-        free_grid(grid);
+    grid->cellStart = (int *) malloc_s(cellCount * sizeof(int));
+    grid->cellSize = (int *) calloc_s(cellCount, sizeof(int));
+    grid->cellPoints = (int *) malloc_s(n * sizeof(int));
+    if (!grid->cellStart || !grid->cellSize || !grid->cellPoints) {
+        freeGrid(grid);
         return false;
     }
 
     // Compute the cells offsets
     for (int i = 0; i < n; i++) {
-        const double x = points[X_INDEX(i)];
-        const double y = points[Y_INDEX(i)];
-
         int cx, cy;
-        point_cell_coordinates(
-            &cx, &cy, x, y,
-            grid->x_min, grid->y_min, grid->cell_size
+        pointCellCoordinates(
+            &cx, &cy, x[i], y[i],
+            grid->xMin, grid->yMin, invEps
         );
 
-        const int c = cell_id(cx, cy, grid->width);
-        grid->cell_offset[c]++;
+        const int c = linearCellId(cx, cy, grid->width);
+        grid->cellSize[c]++;
     }
 
     // Compute the cells start indexes
     int offset = 0;
-    for (int c = 0; c < cell_count; c++) {
-        grid->cell_start[c] = offset;
-        offset += grid->cell_offset[c];
-        grid->cell_offset[c] = 0;
+    for (int c = 0; c < cellCount; c++) {
+        grid->cellStart[c] = offset;
+        offset += grid->cellSize[c];
+        grid->cellSize[c] = 0;
     }
 
     // Insert points into its cell
     for (int i = 0; i < n; i++) {
-        const double x = points[X_INDEX(i)];
-        const double y = points[Y_INDEX(i)];
-
         int cx, cy;
-        point_cell_coordinates(
-            &cx, &cy, x, y,
-            grid->x_min, grid->y_min, grid->cell_size
+        pointCellCoordinates(
+            &cx, &cy, x[i], y[i],
+            grid->xMin, grid->yMin, invEps
         );
 
-        const int c = cell_id(cx, cy, grid->width);
-        const int pos = grid->cell_start[c] + grid->cell_offset[c];
-        grid->cell_points[pos] = i;
-        grid->cell_offset[c]++;
+        const int c = linearCellId(cx, cy, grid->width);
+        const int pos = grid->cellStart[c] + grid->cellSize[c];
+        grid->cellPoints[pos] = i;
+        grid->cellSize[c]++;
     }
 
     return true;
@@ -104,27 +100,28 @@ bool init_grid(Grid *grid, const double *points, const int n, const double eps) 
  * @brief Finds all neighbors of a given point within epsilon distance.
  *
  * @param neighbor Output array to store indices of neighboring points.
- * @param points Flattened array of 2D points.
+ * @param x Pointer to the array of x coordinates corresponding to each point.
+ * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param grid Pointer to the precomputed grid.
  * @param i Index of the point for which neighbors are searched.
  * @return Number of neighbors found.
  *
  * @note The array neighbor must have [n] elements.
  */
-int find_neighbors(
+int findNeighbors(
     int *neighbor,
-    const double *points,
+    const double *x,
+    const double *y,
     const Grid *grid,
     const int i
 ) {
-    const double xi = points[X_INDEX(i)];
-    const double yi = points[Y_INDEX(i)];
-    const double eps2 = grid->cell_size * grid->cell_size;
+    const double invEps = 1.0 / grid-> eps;
+    const double eps2 = grid->eps * grid->eps;
 
     int cx, cy;
-    point_cell_coordinates(
-        &cx, &cy, xi, yi,
-        grid->x_min, grid->y_min, grid->cell_size
+    pointCellCoordinates(
+        &cx, &cy, x[i], y[i],
+        grid->xMin, grid->yMin, invEps
     );
 
     int count = 0;
@@ -134,16 +131,14 @@ int find_neighbors(
             const int ny = cy + dy;
             if (nx < 0 || ny < 0 || nx >= grid->width || ny >= grid->height) continue;
 
-            const int c = cell_id(nx, ny, grid->width);
-            const int start = grid->cell_start[c];
-            const int offset = grid->cell_offset[c];
+            const int nid = linearCellId(nx, ny, grid->width);
+            const int start = grid->cellStart[nid];
+            const int end = start + grid->cellSize[nid];
 
-            for (int k = 0; k < offset; k++) {
-                const int j = grid->cell_points[start + k];
-                const double xj = points[X_INDEX(j)];
-                const double yj = points[Y_INDEX(j)];
+            for (int k = start; k < end; k++) {
+                const int j = grid->cellPoints[k];
 
-                if (i != j && is_eps_neighbor(xi, yi, xj, yj, eps2)) {
+                if (i != j && isEpsNeighbor(x[i], y[i], x[j], y[j], eps2)) {
                     neighbor[count++] = j;
                 }
             }
@@ -159,40 +154,42 @@ int find_neighbors(
  *
  * @param cluster Array storing cluster labels for each point.
  * @param queue Temporary queue used for breadth-first search.
- * @param neighbors_buf Temporary buffer for neighbor indices.
- * @param points Flattened array of 2D points.
+ * @param neighbors Temporary buffer for neighbor indices.
+ * @param x Pointer to the array of x coordinates corresponding to each point.
+ * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param grid Pointer to the precomputed grid.
- * @param min_pts Minimum points to form a core point.
- * @param cluster_id ID of the cluster being expanded.
+ * @param minPts Minimum points to form a core point.
+ * @param clusterId ID of the cluster being expanded.
  * @param i Index of the core point to start the expansion.
  *
  * @note The arrays neighbor and queue must have [n] elements.
  */
-void expand_cluster(
+void expandCluster(
     int *cluster,
     int *queue,
-    int *neighbors_buf,
-    const double *points,
+    int *neighbors,
+    const double *x,
+    const double *y,
     const Grid *grid,
-    const int min_pts,
-    const int cluster_id,
+    const int minPts,
+    const int clusterId,
     const int i
 ) {
-    cluster[i] = cluster_id;
+    cluster[i] = clusterId;
     int head = 0, tail = 0;
     queue[tail++] = i;
 
     while (head < tail) {
         const int j = queue[head++];
-        const int degree = find_neighbors(neighbors_buf, points, grid, j);
+        const int degree = findNeighbors(neighbors, x, y, grid, j);
 
-        if (!is_core(degree, min_pts)) continue;
+        if (!isCore(degree, minPts)) continue;
 
         for (int k = 0; k < degree; k++) {
-            const int r = neighbors_buf[k];
+            const int r = neighbors[k];
 
             if (cluster[r] == NO_CLUSTER_LABEL) {
-                cluster[r] = cluster_id;
+                cluster[r] = clusterId;
                 queue[tail++] = r;
             }
         }
@@ -205,47 +202,49 @@ void expand_cluster(
  * to form clusters. Core points expand clusters using a breadth-first approach.
  *
  * @param cluster Array to store cluster labels for each point.
- * @param cluster_count Pointer to store the number of clusters found.
- * @param points Flattened array of 2D points.
+ * @param clusterCount Pointer to store the number of clusters found.
+ * @param x Pointer to the array of x coordinates corresponding to each point.
+ * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param n Number of points.
  * @param eps Neighborhood radius.
- * @param min_pts Minimum points to form a core point.
+ * @param minPts Minimum points to form a core point.
  */
-void dbscan_cpu(
+void dbscanCpu(
     int *cluster,
-    int *cluster_count,
-    const double *points,
+    int *clusterCount,
+    const double *x,
+    const double *y,
     const int n,
     const double eps,
-    const int min_pts
+    const int minPts
 ) {
     memset(cluster, NO_CLUSTER_LABEL, n * sizeof(int));
 
     Grid grid;
-    if (!init_grid(&grid, points, n, eps)) {
+    if (!initGrid(&grid, x, y, n, eps)) {
         fprintf(stderr, "Failed to compute grid\n");
         return;
     }
 
     int *queue = (int *) malloc_s(n * sizeof(int));
-    int *neighbors_buf = (int *) malloc_s(n * sizeof(int));
-    if (!queue || !neighbors_buf) {
-        cleanup(&grid, &queue, &neighbors_buf);
+    int *neighbors = (int *) malloc_s(n * sizeof(int));
+    if (!queue || !neighbors) {
+        cleanup(&grid, &queue, &neighbors);
         return;
     }
 
-    int cluster_id = NO_CLUSTER_LABEL;
+    int clusterId = NO_CLUSTER_LABEL;
 
     for (int i = 0; i < n; i++) {
         if (cluster[i] != NO_CLUSTER_LABEL) continue;
 
-        const int degree = find_neighbors(neighbors_buf, points, &grid, i);
-        if (!is_core(degree, min_pts)) continue;
+        const int degree = findNeighbors(neighbors, x, y, &grid, i);
+        if (!isCore(degree, minPts)) continue;
 
-        expand_cluster(cluster, queue, neighbors_buf, points, &grid, min_pts, ++cluster_id, i);
+        expandCluster(cluster, queue, neighbors, x, y, &grid, minPts, ++clusterId, i);
     }
 
-    *cluster_count = cluster_id;
+    *clusterCount = clusterId;
 
-    cleanup(&grid, &queue, &neighbors_buf);
+    cleanup(&grid, &queue, &neighbors);
 }

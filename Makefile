@@ -12,8 +12,8 @@ N ?= 100000
 N_LIST ?= 1000 5000 10000 20000 30000 40000 50000 60000 70000 80000 90000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000
 
 C ?= 30
-CS ?= 10.0
-STD ?= 0.3
+CS ?= 100.0
+STD ?= 3
 NR ?= 0.001
 R ?= 0
 
@@ -25,7 +25,7 @@ generate:
 multiple-generate:
 	cd script && \
 	call .venv/Scripts/activate && \
-	python multiple_generator.py -fn $(FN_GEN) -n $(N_LIST) -c $(C) -cs $(CS) -std $(STD) -nr $(NR) -r $(R)
+	python generator.py -fn $(FN_GEN) -n $(N_LIST) -c $(C) -cs $(CS) -std $(STD) -nr $(NR) -r $(R)
 
 plot:
 	cd script && \
