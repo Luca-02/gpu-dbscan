@@ -4,18 +4,19 @@
 #define DATA_IN_PATH "../data_in/"
 #define DATA_OUT_PATH "../data_out/"
 
-#define INPUT_FILE DATA_IN_PATH "dataset_1000000n_30c_100d0cs_3d0std_0d001nr.csv"
+#define INPUT_FILE DATA_IN_PATH "dataset_1000000n_30c_10d0cs_0d3std_0d001nr.csv"
 #define OUTPUT_FILE_CPU DATA_OUT_PATH "cpu.csv"
 #define OUTPUT_FILE_GPU DATA_OUT_PATH "gpu.csv"
 
-#define EPSILON 3.0
+#define EPSILON 0.3
 #define MIN_PTS 8
 #define NO_CLUSTER_LABEL 0
 
 #ifdef __CUDACC__
+/** Macro to define host and device functions */
 #define HD __host__ __device__
 #else
-#define HD
+#define HD // Empty definition for CPU compilation
 #endif
 
 /**

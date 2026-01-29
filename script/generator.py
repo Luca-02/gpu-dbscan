@@ -232,11 +232,11 @@ def generate_dataset(
     return np.vstack([points, noise])
 
 
-def save_dataset(file_name, data, n, c, center_scale, std_scale, noise_ratio):
+def save_dataset(index, data, n, c, center_scale, std_scale, noise_ratio):
     """
     Saves a 2D dataset to a CSV file with headers "x,y".
 
-    :param file_name: Name of the dataset file (without extension)
+    :param index: Index of the dataset
     :param data: Numpy array of shape (n, 2) containing dataset points
     :param n: Total number of points
     :param c: Number of clusters
@@ -253,7 +253,7 @@ def save_dataset(file_name, data, n, c, center_scale, std_scale, noise_ratio):
 
     path = os.path.join(
         folder,
-        f"{file_name}_{n}n_{c}c_{center_scale_str}cs_{std_scale_str}std_{noise_ratio_str}nr.csv"
+        f"dataset{index}_{n}n_{c}c_{center_scale_str}cs_{std_scale_str}std_{noise_ratio_str}nr.csv"
     )
     print(f"Saving in {str(path).replace('\\', '/')}")
 
@@ -266,7 +266,6 @@ def save_dataset(file_name, data, n, c, center_scale, std_scale, noise_ratio):
 if __name__ == "__main__":
     default_n = 10000,
     parser = argparse.ArgumentParser(description="Generate synthetic 2D dataset.")
-    parser.add_argument("-fn", default="input", help="CSV dataset file name (without extension)")
     parser.add_argument("-n", type=int, nargs="+", default=default_n, help="List of total points for each dataset")
     parser.add_argument("-c", type=int, default=30, help="Number of clusters")
     parser.add_argument("-cs", type=float, default=10.0, help="Scale for random cluster centers")
@@ -275,9 +274,9 @@ if __name__ == "__main__":
     parser.add_argument("-r", type=int, default=0, help="Random seed")
     args = parser.parse_args()
 
-    for n in args.n:
+    for i in range(len(args.n)):
         dataset = generate_dataset(
-            n=n,
+            n=args.n[i],
             c=args.c,
             center_scale=args.cs,
             std_scale=args.std,
@@ -285,9 +284,9 @@ if __name__ == "__main__":
             random_state=args.r
         )
         save_dataset(
-            file_name=args.fn,
+            index=i,
             data=dataset,
-            n=n,
+            n=args.n[i],
             c=args.c,
             center_scale=args.cs,
             std_scale=args.std,

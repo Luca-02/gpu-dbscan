@@ -75,7 +75,7 @@ def read_dataset(file_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot 2D dataset.")
-    parser.add_argument("-fn", default="output", help="CSV dataset file name (without extension)")
+    parser.add_argument("-fn", default="dbscan", help="CSV dataset file name (without extension)")
     args = parser.parse_args()
 
     data = read_dataset(file_name=args.fn)

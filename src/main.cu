@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cstdio>
 #include <ctime>
+#include <string>
 #include "helper.h"
 #include "cuda_helper.h"
 #include "io.h"
@@ -68,7 +69,7 @@ double runDbscan(
     return elapsed;
 }
 
-int test() {
+int test_gpu() {
     double *x, *y;
     int n;
 
@@ -98,11 +99,37 @@ int test() {
     return EXIT_SUCCESS;
 }
 
+int test_read_files() {
+    char **fileNames;
+    int fileCount;
+
+    if (!listFilesInFolder(DATA_IN_PATH, &fileNames, &fileCount)) {
+        for (int i = 0; i < fileCount; i++) {
+            if (fileNames[i]) free(fileNames[i]);
+            fileNames[i] = nullptr;
+        }
+        return EXIT_FAILURE;
+    }
+
+    qsort(fileNames, fileCount, sizeof(char *), compareStrings);
+
+    for (int i = 0; i < fileCount; i++) {
+        printf("%s\n", fileNames[i]);
+    }
+
+    for (int i = 0; i < fileCount; i++) {
+        if (fileNames[i]) free(fileNames[i]);
+        fileNames[i] = nullptr;
+    }
+    return EXIT_SUCCESS;
+}
+
 int hd_run() {
     double *x, *y;
     int n;
 
     if (!loadDataset(&x, &y, &n)) {
+        freeResource(&x, &y, nullptr, nullptr);
         return EXIT_FAILURE;
     }
 
@@ -144,5 +171,5 @@ int hd_run() {
 // TODO rename all using CamelCase naming convention, better
 int main() {
     // deviceFeat();
-    return test();
+    return test_read_files();
 }
