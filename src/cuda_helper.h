@@ -76,7 +76,7 @@ void launchKernel(
 
         const int activeWarps = numBlocks * blockSize / prop->warpSize;
         const int maxWarps = prop->maxThreadsPerMultiProcessor / prop->warpSize;
-        const double occupancy = 100.0 * activeWarps / maxWarps;
+        const float occupancy = 100.0 * activeWarps / maxWarps;
 
         printf("%s occupancy [blockSize = %d, activeWarps = %d]: %2.2f%%\n",
                kernelName, blockSize, activeWarps, occupancy);

@@ -30,9 +30,9 @@ static void cleanup(Grid *grid, int **queue, int **neighbors) {
  * @param eps Neighborhood radius (cell size).
  * @return True if the grid was successfully initialized, false otherwise.
  */
-bool initGrid(Grid *grid, const double *x, const double *y, const int n, const double eps) {
-    double xMin = x[0], xMax = x[0];
-    double yMin = y[0], yMax = y[0];
+bool initGrid(Grid *grid, const float *x, const float *y, const int n, const float eps) {
+    float xMin = x[0], xMax = x[0];
+    float yMin = y[0], yMax = y[0];
 
     for (int i = 1; i < n; i++) {
         xMin = fmin(xMin, x[i]);
@@ -49,7 +49,7 @@ bool initGrid(Grid *grid, const double *x, const double *y, const int n, const d
     grid->height = ceil((yMax - grid->yMin) / eps + 1);
 
     const int cellCount = grid->width * grid->height;
-    const double invEps = 1.0 / grid->eps;
+    const float invEps = 1.0 / grid->eps;
 
     grid->cellStart = (int *) malloc_s(cellCount * sizeof(int));
     grid->cellSize = (int *) calloc_s(cellCount, sizeof(int));
@@ -110,13 +110,13 @@ bool initGrid(Grid *grid, const double *x, const double *y, const int n, const d
  */
 int findNeighbors(
     int *neighbor,
-    const double *x,
-    const double *y,
+    const float *x,
+    const float *y,
     const Grid *grid,
     const int i
 ) {
-    const double invEps = 1.0 / grid-> eps;
-    const double eps2 = grid->eps * grid->eps;
+    const float invEps = 1.0 / grid-> eps;
+    const float eps2 = grid->eps * grid->eps;
 
     int cx, cy;
     pointCellCoordinates(
@@ -168,8 +168,8 @@ void expandCluster(
     int *cluster,
     int *queue,
     int *neighbors,
-    const double *x,
-    const double *y,
+    const float *x,
+    const float *y,
     const Grid *grid,
     const int minPts,
     const int clusterId,
@@ -212,10 +212,10 @@ void expandCluster(
 void dbscanCpu(
     int *cluster,
     int *clusterCount,
-    const double *x,
-    const double *y,
+    const float *x,
+    const float *y,
     const int n,
-    const double eps,
+    const float eps,
     const int minPts
 ) {
     memset(cluster, NO_CLUSTER_LABEL, n * sizeof(int));

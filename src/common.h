@@ -4,7 +4,7 @@
 #define DATA_IN_PATH "../data_in/"
 #define DATA_OUT_PATH "../data_out/"
 
-#define INPUT_FILE DATA_IN_PATH "dataset_1000000n_30c_10d0cs_0d3std_0d001nr.csv"
+#define INPUT_FILE DATA_IN_PATH "dataset20_1000000n_30c_10d0cs_0d3std_0d001nr.csv"
 #define OUTPUT_FILE_CPU DATA_OUT_PATH "cpu.csv"
 #define OUTPUT_FILE_GPU DATA_OUT_PATH "gpu.csv"
 
@@ -34,11 +34,11 @@
 HD inline void pointCellCoordinates(
     int *cx,
     int *cy,
-    const double x,
-    const double y,
-    const double xMin,
-    const double yMin,
-    const double invEps
+    const float x,
+    const float y,
+    const float xMin,
+    const float yMin,
+    const float invEps
 ) {
     *cx = (int) ((x - xMin) * invEps);
     *cy = (int) ((y - yMin) * invEps);
@@ -83,14 +83,14 @@ HD inline bool isCore(const int degree, const int minPts) {
  * @note This implementation avoids the use of sqrt by checking the squared distance instead.
  */
 HD inline bool isEpsNeighbor(
-    const double x1,
-    const double y1,
-    const double x2,
-    const double y2,
-    const double eps2
+    const float x1,
+    const float y1,
+    const float x2,
+    const float y2,
+    const float eps2
 ) {
-    const double dx = x2 - x1;
-    const double dy = y2 - y1;
+    const float dx = x2 - x1;
+    const float dy = y2 - y1;
     return dx * dx + dy * dy <= eps2;
 }
 

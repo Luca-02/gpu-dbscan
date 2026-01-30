@@ -9,9 +9,9 @@
 #include "cpu_dbscan.h"
 #include "gpu_dbscan.h"
 
-typedef void (*dbscanFn)(int *, int *, const double *, const double *, int, double, int);
+typedef void (*dbscanFn)(int *, int *, const float *, const float *, int, float, int);
 
-void freeResource(double **x, double **y, int **clusterCpu, int **clusterGpu) {
+void freeResource(float **x, float **y, int **clusterCpu, int **clusterGpu) {
     if (*x) free(*x);
     if (*y) free(*y);
     if (*clusterCpu) free(*clusterCpu);
@@ -36,7 +36,7 @@ void assertion(
     }
 }
 
-bool loadDataset(double **x, double **y, int *n) {
+bool loadDataset(float **x, float **y, int *n) {
     if (!parseDatasetFile(INPUT_FILE, x, y, n)) {
         fprintf(stderr, "Error parsing points file\n");
         return false;
@@ -51,8 +51,8 @@ double runDbscan(
     int *clusterCount,
     const char *label,
     const dbscanFn dbscan,
-    const double *x,
-    const double *y,
+    const float *x,
+    const float *y,
     const int n,
     const char *outputFile
 ) {
@@ -70,7 +70,7 @@ double runDbscan(
 }
 
 int test_gpu() {
-    double *x, *y;
+    float *x, *y;
     int n;
 
     if (!loadDataset(&x, &y, &n)) {
@@ -125,7 +125,7 @@ int test_read_files() {
 }
 
 int hd_run() {
-    double *x, *y;
+    float *x, *y;
     int n;
 
     if (!loadDataset(&x, &y, &n)) {
@@ -171,5 +171,5 @@ int hd_run() {
 // TODO rename all using CamelCase naming convention, better
 int main() {
     // deviceFeat();
-    return test_read_files();
+    return test_gpu();
 }

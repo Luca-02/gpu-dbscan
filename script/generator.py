@@ -229,7 +229,7 @@ def generate_dataset(
     points = np.vstack(clusters)
     noise = gen_noise(n_noise, points, rng)
 
-    return np.vstack([points, noise])
+    return np.vstack([points, noise]).astype(np.float32)
 
 
 def save_dataset(index, data, n, c, center_scale, std_scale, noise_ratio):

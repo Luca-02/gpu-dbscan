@@ -12,7 +12,7 @@
  * @param n Pointer to where the number of points will be stored.
  * @return True if parsing was successful, false otherwise.
  */
-bool parseDatasetFile(const char *fileName, double **x, double **y, int *n);
+bool parseDatasetFile(const char *fileName, float **x, float **y, int *n);
 
 /**
  * @brief Writes points and cluster IDs to a CSV dbscan file.
@@ -23,7 +23,7 @@ bool parseDatasetFile(const char *fileName, double **x, double **y, int *n);
  * @param cluster Array of cluster IDs for each point.
  * @param n Number of points.
  */
-void writeDbscanFile(const char *fileName, const double *x, const double *y, const int *cluster, int n);
+void writeDbscanFile(const char *fileName, const float *x, const float *y, const int *cluster, int n);
 
 /**
  * @brief Lists all files in a folder, allocating memory dynamically.

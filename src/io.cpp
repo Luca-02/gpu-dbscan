@@ -19,7 +19,7 @@
  *
  * @note Memory for x and y array is dynamically allocated using malloc and must be freed by the caller.
  */
-bool parseDatasetFile(const char *fileName, double **x, double **y, int *n) {
+bool parseDatasetFile(const char *fileName, float **x, float **y, int *n) {
     *x = nullptr;
     *y = nullptr;
     *n = 0;
@@ -52,8 +52,8 @@ bool parseDatasetFile(const char *fileName, double **x, double **y, int *n) {
     rewind(file);
     fgets(line, sizeof(line), file); // skip header
 
-    *x = (double *) malloc_s(*n * sizeof(double));
-    *y = (double *) malloc_s(*n * sizeof(double));
+    *x = (float *) malloc_s(*n * sizeof(float));
+    *y = (float *) malloc_s(*n * sizeof(float));
     if (!*x || !*y) {
         fclose(file);
         return false;
@@ -102,7 +102,7 @@ bool parseDatasetFile(const char *fileName, double **x, double **y, int *n) {
  *
  * @note The array points and cluster must have [n * 2] and [n] elements.
  */
-void writeDbscanFile(const char *fileName, const double *x, const double *y, const int *cluster, const int n) {
+void writeDbscanFile(const char *fileName, const float *x, const float *y, const int *cluster, const int n) {
     if (!std::filesystem::exists(DATA_OUT_PATH)) {
         std::filesystem::create_directory(DATA_OUT_PATH);
     }
@@ -117,7 +117,7 @@ void writeDbscanFile(const char *fileName, const double *x, const double *y, con
     fprintf(file, "x,y,cluster\n");
 
     for (int i = 0; i < n; i++) {
-        fprintf(file, "%.15g,%.15g,%u\n", x[i], y[i], cluster[i]);
+        fprintf(file, "%.7f,%.7f,%u\n", x[i], y[i], cluster[i]);
     }
 
     fclose(file);

@@ -16,9 +16,9 @@ typedef struct {
 
     int width;          /**< Number of cells along the x-axis */
     int height;         /**< Number of cells along the y-axis */
-    double eps;         /**< Size of each cell */
-    double xMin;       /**< Minimum x coordinate of the points */
-    double yMin;       /**< Minimum y coordinate of the points */
+    float eps;          /**< Size of each cell */
+    float xMin;         /**< Minimum x coordinate of the points */
+    float yMin;         /**< Minimum y coordinate of the points */
 } Grid;
 
 /**
@@ -52,10 +52,10 @@ inline void freeGrid(Grid *grid) {
 void dbscanCpu(
     int *cluster,
     int *clusterCount,
-    const double *x,
-    const double *y,
+    const float *x,
+    const float *y,
     int n,
-    double eps,
+    float eps,
     int minPts
 );
 
