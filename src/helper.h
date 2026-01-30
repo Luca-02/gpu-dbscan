@@ -3,19 +3,6 @@
 #include <cstdio>
 
 /**
- * @brief Compares two strings for sorting.
- *
- * @param a Pointer to first string.
- * @param b Pointer to second string.
- * @return Negative if a < b, positive if a > b, zero if equal.
- */
-inline int compareStrings(const void *a, const void *b) {
-    const char *s1 = *(char **) a;
-    const char *s2 = *(char **) b;
-    return strcmp(s1, s2);
-}
-
-/**
  * @brief Safely allocates memory, printing an error message if allocation fails.
  *
  * @param size The size of memory to allocate.

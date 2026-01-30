@@ -4,9 +4,9 @@
 #define DATA_IN_PATH "../data_in/"
 #define DATA_OUT_PATH "../data_out/"
 
-#define INPUT_FILE DATA_IN_PATH "dataset20_1000000n_30c_10d0cs_0d3std_0d001nr.csv"
-#define OUTPUT_FILE_CPU DATA_OUT_PATH "cpu.csv"
-#define OUTPUT_FILE_GPU DATA_OUT_PATH "gpu.csv"
+#define TEST_INPUT_DATASET DATA_IN_PATH "dataset20_1000000n_30c_10d0cs_0d3std_0d001nr.csv"
+#define TEST_OUTPUT_DBSCAN_CPU DATA_OUT_PATH "cpu.csv"
+#define TEST_OUTPUT_DBSCAN_GPU DATA_OUT_PATH "gpu.csv"
 
 #define EPSILON 0.3
 #define MIN_PTS 8
@@ -18,6 +18,36 @@
 #else
 #define HD // Empty definition for CPU compilation
 #endif
+
+/**
+ * @brief Compares two dataset file names by their dataset number.
+ *
+ * @param a Pointer to first file name.
+ * @param b Pointer to second file name.
+ * @return Negative if a < b, positive if a > b, zero if equal.
+ */
+inline int compareDatasetNames(const void *a, const void *b) {
+    const char *fa = *(const char **)a;
+    const char *fb = *(const char **)b;
+
+    const char *pa = strstr(fa, "dataset");
+    const char *pb = strstr(fb, "dataset");
+    if (!pa || !pb) {
+        return strcmp(fa, fb);
+    }
+
+    pa += 7;
+    pb += 7;
+
+    const int na = atoi(pa);
+    const int nb = atoi(pb);
+
+    if (na != nb) {
+        return na - nb;
+    }
+
+    return strcmp(fa, fb);
+}
 
 /**
  * @brief Calculates the cell coordinates of a point based on its coordinates and the epsilon

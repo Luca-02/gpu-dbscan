@@ -3,7 +3,7 @@
 #include <ctime>
 #include <string>
 #include "helper.h"
-#include "cuda_helper.h"
+// #include "cuda_helper.h"
 #include "io.h"
 #include "common.h"
 #include "cpu_dbscan.h"
@@ -11,15 +11,42 @@
 
 typedef void (*dbscanFn)(int *, int *, const float *, const float *, int, float, int);
 
-void freeResource(float **x, float **y, int **clusterCpu, int **clusterGpu) {
+void freeDatasetNames(char ***datasetNames, const int fileCount) {
+    if (*datasetNames) {
+        for (int i = 0; i < fileCount; i++) {
+            if ((*datasetNames)[i]) free((*datasetNames)[i]);
+            (*datasetNames)[i] = nullptr;
+        }
+        free(*datasetNames);
+    }
+    *datasetNames = nullptr;
+}
+
+void freePoints(float **x, float **y) {
     if (*x) free(*x);
     if (*y) free(*y);
-    if (*clusterCpu) free(*clusterCpu);
-    if (*clusterGpu) free(*clusterGpu);
     *x = nullptr;
     *y = nullptr;
+}
+
+void freeClusters(int **clusterCpu, int **clusterGpu) {
+    if (*clusterCpu) free(*clusterCpu);
+    if (*clusterGpu) free(*clusterGpu);
     *clusterCpu = nullptr;
     *clusterGpu = nullptr;
+}
+
+void cleanup(
+    char ***datasetNames,
+    float **x,
+    float **y,
+    int **clusterCpu,
+    int **clusterGpu,
+    const int fileCount
+) {
+    freeDatasetNames(datasetNames, fileCount);
+    freePoints(x, y);
+    freeClusters(clusterCpu, clusterGpu);
 }
 
 void assertion(
@@ -36,13 +63,22 @@ void assertion(
     }
 }
 
+bool getDatasetNames(char*** datasetNames, int *fileCount) {
+    if (!listFilesInFolder(DATA_IN_PATH, datasetNames, fileCount)) {
+        fprintf(stderr, "Error listing dataset names in folder %s\n", DATA_IN_PATH);
+        return false;
+    }
+    qsort(*datasetNames, *fileCount, sizeof(char *), compareDatasetNames);
+    return true;
+}
+
 bool loadDataset(float **x, float **y, int *n) {
-    if (!parseDatasetFile(INPUT_FILE, x, y, n)) {
+    if (!parseDatasetFile(TEST_INPUT_DATASET, x, y, n)) {
         fprintf(stderr, "Error parsing points file\n");
         return false;
     }
     printf("Processing %s [n: %d, eps: %f, min_pts:%d].\n",
-        INPUT_FILE, *n, EPSILON, MIN_PTS);
+        TEST_INPUT_DATASET, *n, EPSILON, MIN_PTS);
     return true;
 }
 
@@ -69,18 +105,37 @@ double runDbscan(
     return elapsed;
 }
 
-int test_gpu() {
+int testDatasetNames() {
+    char **datasetNames;
+    int fileCount;
+
+    if (!getDatasetNames(&datasetNames, &fileCount)) {
+        freeDatasetNames(&datasetNames, fileCount);
+        return EXIT_FAILURE;
+    }
+
+    for (int i = 0; i < fileCount; i++) {
+        printf("%s\n", datasetNames[i]);
+    }
+
+    freeDatasetNames(&datasetNames, fileCount);
+    return EXIT_SUCCESS;
+}
+
+int testGpu() {
     float *x, *y;
     int n;
 
     if (!loadDataset(&x, &y, &n)) {
+        freePoints(&x, &y);
         return EXIT_FAILURE;
     }
 
     int *cluster_cpu = (int *) malloc_s(n * sizeof(int));
     int *cluster_gpu = (int *) malloc_s(n * sizeof(int));
     if (!cluster_cpu || !cluster_gpu) {
-        freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
+        freePoints(&x, &y);
+        freeClusters(&cluster_cpu, &cluster_gpu);
         return EXIT_FAILURE;
     }
 
@@ -92,55 +147,31 @@ int test_gpu() {
         "Parallel",
         dbscan_gpu,
         x, y, n,
-        OUTPUT_FILE_GPU
+        TEST_OUTPUT_DBSCAN_GPU
     );
 
-    freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
+    freePoints(&x, &y);
+    freeClusters(&cluster_cpu, &cluster_gpu);
     return EXIT_SUCCESS;
 }
 
-int test_read_files() {
-    char **fileNames;
-    int fileCount;
-
-    if (!listFilesInFolder(DATA_IN_PATH, &fileNames, &fileCount)) {
-        for (int i = 0; i < fileCount; i++) {
-            if (fileNames[i]) free(fileNames[i]);
-            fileNames[i] = nullptr;
-        }
-        return EXIT_FAILURE;
-    }
-
-    qsort(fileNames, fileCount, sizeof(char *), compareStrings);
-
-    for (int i = 0; i < fileCount; i++) {
-        printf("%s\n", fileNames[i]);
-    }
-
-    for (int i = 0; i < fileCount; i++) {
-        if (fileNames[i]) free(fileNames[i]);
-        fileNames[i] = nullptr;
-    }
-    return EXIT_SUCCESS;
-}
-
-int hd_run() {
+int hdRun() {
     float *x, *y;
     int n;
 
     if (!loadDataset(&x, &y, &n)) {
-        freeResource(&x, &y, nullptr, nullptr);
-        return EXIT_FAILURE;
-    }
-
-    int *cluster_cpu = (int *) malloc_s(n * sizeof(int));
-    int *cluster_gpu = (int *) malloc_s(n * sizeof(int));
-    if (!cluster_cpu || !cluster_gpu) {
-        freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
+        freePoints(&x, &y);
         return EXIT_FAILURE;
     }
 
     int cluster_count_cpu, cluster_count_gpu;
+    int *cluster_cpu = (int *) malloc_s(n * sizeof(int));
+    int *cluster_gpu = (int *) malloc_s(n * sizeof(int));
+    if (!cluster_cpu || !cluster_gpu) {
+        freePoints(&x, &y);
+        freeClusters(&cluster_cpu, &cluster_gpu);
+        return EXIT_FAILURE;
+    }
 
     const double elapsed_cpu = runDbscan(
         cluster_cpu,
@@ -148,7 +179,7 @@ int hd_run() {
         "Sequential",
         dbscanCpu,
         x, y, n,
-        OUTPUT_FILE_CPU
+        TEST_OUTPUT_DBSCAN_CPU
     );
 
     const double elapsed_gpu = runDbscan(
@@ -157,19 +188,24 @@ int hd_run() {
         "Parallel",
         dbscan_gpu,
         x, y, n,
-        OUTPUT_FILE_GPU
+        TEST_OUTPUT_DBSCAN_GPU
     );
 
     printf("Speedup: %f\n", elapsed_cpu / elapsed_gpu);
 
     assertion(cluster_cpu, cluster_gpu, cluster_count_cpu, cluster_count_gpu, n);
 
-    freeResource(&x, &y, &cluster_cpu, &cluster_gpu);
+    freePoints(&x, &y);
+    freeClusters(&cluster_cpu, &cluster_gpu);
+    return EXIT_SUCCESS;
+}
+
+int datasetsRun() {
     return EXIT_SUCCESS;
 }
 
 // TODO rename all using CamelCase naming convention, better
 int main() {
     // deviceFeat();
-    return test_gpu();
+    return hdRun();
 }

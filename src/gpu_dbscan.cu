@@ -110,7 +110,8 @@ __global__ void computeIsCoreArr(
         for (int k = start; k < end; k++) {
             const int j = cellPoints[k];
 
-            if (tid != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) && ++count >= cMinPts) {
+            if (tid != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) &&
+                ++count >= cMinPts) {
                 isCoreArr[tid] = true;
                 return;
             }
@@ -148,7 +149,6 @@ __global__ void bfsExpand(
 
     if (tid >= frontierSize) return;
 
-
     const int i = frontier[tid];
     const float xi = x[i];
     const float yi = y[i];
@@ -176,14 +176,12 @@ __global__ void bfsExpand(
         for (int k = start; k < end; k++) {
             const int j = cellPoints[k];
 
-            if (i != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2)) {
-                const int old = atomicCAS(&cluster[j], NO_CLUSTER_LABEL, clusterId);
-
-                // Add neighbor to frontier iff it is not yet assigned to a cluster and is a core point
-                if (old == NO_CLUSTER_LABEL && isCoreArr[j]) {
-                    const int pos = atomicAdd(nextFrontierSize, 1);
-                    nextFrontier[pos] = j;
-                }
+            // Add neighbor to frontier iff it is not yet assigned to a cluster and is a core point
+            if (i != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) &&
+                atomicCAS(&cluster[j], NO_CLUSTER_LABEL, clusterId) == NO_CLUSTER_LABEL &&
+                isCoreArr[j]) {
+                const int pos = atomicAdd(nextFrontierSize, 1);
+                nextFrontier[pos] = j;
             }
         }
     }
