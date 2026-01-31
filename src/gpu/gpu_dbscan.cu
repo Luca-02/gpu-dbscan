@@ -1,8 +1,8 @@
 #include <thrust/sort.h>
-#include "gpu_dbscan.h"
-#include "common.h"
-#include "helper.h"
-#include "cuda_helper.h"
+#include "./gpu_dbscan.h"
+#include "../common.h"
+#include "../helper.h"
+#include "../cuda_helper.h"
 
 #define BLOCK_SIZE 128
 
@@ -24,18 +24,19 @@ __global__ void computeBinning(
     const float *y
 ) {
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const int blocSize = blockDim.x * gridDim.x;
 
-    if (tid >= cN) return;
+    for (int i = tid; i < cN; i += blocSize) {
+        int cx, cy;
+        pointCellCoordinates(
+            &cx, &cy,
+            x[i], y[i],
+            cXMin, cYMin, cInvEps
+        );
 
-    int cx, cy;
-    pointCellCoordinates(
-        &cx, &cy,
-        x[tid], y[tid],
-        cXMin, cYMin, cInvEps
-    );
-
-    cellId[tid] = linearCellId(cx, cy, cGridWidth);
-    cellPoints[tid] = tid;
+        cellId[i] = linearCellId(cx, cy, cGridWidth);
+        cellPoints[i] = i;
+    }
 }
 
 __global__ void buildBinExtreme(
@@ -44,29 +45,28 @@ __global__ void buildBinExtreme(
     const int *cellId
 ) {
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    const int lane = threadIdx.x % warpSize;
+    const int blocSize = blockDim.x * gridDim.x;
 
-    if (tid >= cN) return;
+    for (int i = tid; i < cN; i += blocSize) {
+        const int lane = threadIdx.x % warpSize;
+        const int cid = cellId[i];
 
-    const int cid = cellId[tid];
+        int prevCid = __shfl_up_sync(0xffffffff, cid, 1, warpSize);
+        if (lane == 0 && i > 0) {
+            prevCid = cellId[i - 1];
+        }
 
-    int prevCid = __shfl_up_sync(0xffffffff, cid, 1, warpSize);
-    // The first thread in the warp need to get the previous cid directly from the global memory
-    if (lane == 0 && tid > 0) {
-        prevCid = cellId[tid - 1];
-    }
+        int nextCid = __shfl_down_sync(0xffffffff, cid, 1, warpSize);
+        if (lane == warpSize - 1 && i + 1 < cN) {
+            nextCid = cellId[i + 1];
+        }
 
-    int nextCid = __shfl_down_sync(0xffffffff, cid, 1, warpSize);
-    // The last thread in the warp need to get the next cid directly from the global memory
-    if (lane == warpSize - 1 && tid + 1 < cN) {
-        nextCid = cellId[tid + 1];
-    }
-
-    if (tid == 0 || cid != prevCid) {
-        cellStart[cid] = tid;
-    }
-    if (tid == cN - 1 || cid != nextCid) {
-        cellEnd[cid] = tid + 1;
+        if (i == 0 || cid != prevCid) {
+            cellStart[cid] = i;
+        }
+        if (i == cN - 1 || cid != nextCid) {
+            cellEnd[cid] = i + 1;
+        }
     }
 }
 
@@ -94,7 +94,7 @@ __global__ void computeIsCoreArr(
 
     int count = 0;
 
-    #pragma unroll
+#pragma unroll
     for (int idx = 0; idx < 9; ++idx) {
         const int dx = idx / 3 - 1;
         const int dy = idx % 3 - 1;
@@ -110,8 +110,7 @@ __global__ void computeIsCoreArr(
         for (int k = start; k < end; k++) {
             const int j = cellPoints[k];
 
-            if (tid != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) &&
-                ++count >= cMinPts) {
+            if (tid != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) && ++count >= cMinPts) {
                 isCoreArr[tid] = true;
                 return;
             }
@@ -119,6 +118,23 @@ __global__ void computeIsCoreArr(
     }
 
     isCoreArr[tid] = isCore(count, cMinPts);
+}
+
+__global__ void findNextCore(
+    int *nextCore,
+    const int *cluster,
+    const bool *isCoreArr,
+    const int startIdx
+) {
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const int blockSize = blockDim.x * gridDim.x;
+
+    for (int i = tid + startIdx; i < cN; i += blockSize) {
+        if (isCoreArr[i] && cluster[i] == NO_CLUSTER_LABEL) {
+            atomicMin(nextCore, i);
+            return;
+        }
+    }
 }
 
 __global__ void bfsExpand(
@@ -137,6 +153,7 @@ __global__ void bfsExpand(
     const int level,
     const int root
 ) {
+    // TODO add shared frontier
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Assign cluster to core point
@@ -160,7 +177,7 @@ __global__ void bfsExpand(
         cXMin, cYMin, cInvEps
     );
 
-    #pragma unroll
+#pragma unroll
     for (int idx = 0; idx < 9; ++idx) {
         const int dx = idx / 3 - 1;
         const int dy = idx % 3 - 1;
@@ -228,6 +245,7 @@ void dbscan_gpu(
     bool *dIsCoreArr;
     int *dFrontier;
     int *dNextFrontier;
+    int *dNextCore;
     int *dNextFrontierSize;
 
     CUDA_CHECK(cudaMalloc(&dCluster, n * sizeof(int)));
@@ -240,6 +258,7 @@ void dbscan_gpu(
     CUDA_CHECK(cudaMalloc(&dIsCoreArr, n * sizeof(bool)));
     CUDA_CHECK(cudaMalloc(&dFrontier, n * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&dNextFrontier, n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&dNextCore, sizeof(int)));
     CUDA_CHECK(cudaMalloc(&dNextFrontierSize, sizeof(int)));
 
     CUDA_CHECK(cudaMemcpyToSymbol(cXMin, &xMin, sizeof(float)));
@@ -257,8 +276,6 @@ void dbscan_gpu(
     CUDA_CHECK(cudaMemcpy(dY, y, n * sizeof(float), cudaMemcpyHostToDevice));
 
     CUDA_CHECK(cudaMemset(dCluster, NO_CLUSTER_LABEL, n * sizeof(int)));
-    CUDA_CHECK(cudaMemset(dCellStart, 0, cellCount * sizeof(int)));
-    CUDA_CHECK(cudaMemset(dCellEnd, 0, cellCount * sizeof(int)));
 
     launchKernel(
         computeBinning, nullptr, n,
@@ -284,17 +301,26 @@ void dbscan_gpu(
 
     CUDA_CHECK(cudaMemcpy(hIsCoreArr, dIsCoreArr, n * sizeof(bool), cudaMemcpyDeviceToHost));
 
-    int clusterId = NO_CLUSTER_LABEL;
     dim3 block(BLOCK_SIZE);
 
-    for (int p = 0; p < n; p++) {
-        if (!hIsCoreArr[p]) continue;
+    int startIdx = 0;
+    int hClusterCount = NO_CLUSTER_LABEL;
+    for (int iter = 0; iter < n; iter++) {
+        int hNextCore = n;
+        CUDA_CHECK(cudaMemset(dNextCore, hNextCore, sizeof(int)));
 
-        int hCluster;
-        CUDA_CHECK(cudaMemcpy(&hCluster, dCluster + p, sizeof(int), cudaMemcpyDeviceToHost));
-        if (hCluster != NO_CLUSTER_LABEL) continue;
+        launchKernel(
+            findNextCore, nullptr, n - startIdx,
+            dNextCore, dCluster, dIsCoreArr, startIdx
+        );
 
-        clusterId++;
+        CUDA_CHECK(cudaMemcpy(&hNextCore, dNextCore, sizeof(int), cudaMemcpyDeviceToHost));
+
+        // If no more core points exit loop
+        if (hNextCore >= n) break;
+
+        startIdx = hNextCore + 1;
+        hClusterCount++;
 
         int level = 0;
         int frontier_size = 1;
@@ -307,8 +333,9 @@ void dbscan_gpu(
                 dCluster, dFrontier, dNextFrontier,
                 dNextFrontierSize, dX, dY, dCellStart,
                 dCellEnd, dCellPoints, dIsCoreArr,
-                frontier_size, clusterId, level, p
+                frontier_size, hClusterCount, level, hNextCore
             );
+            CUDA_CHECK(cudaGetLastError());
 
             level++;
             CUDA_CHECK(cudaMemcpy(&frontier_size, dNextFrontierSize, sizeof(int), cudaMemcpyDeviceToHost));
@@ -316,7 +343,7 @@ void dbscan_gpu(
         }
     }
 
-    *clusterCount = clusterId;
+    *clusterCount = hClusterCount;
 
     CUDA_CHECK(cudaMemcpy(cluster, dCluster, n * sizeof(int), cudaMemcpyDeviceToHost));
 

@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # CPU DBSCAN
 # ------------------------------
 add_library(cpu_dbscan STATIC
-        src/cpu_dbscan.cpp
+        src/cpu/cpu_dbscan.cpp
         src/common.h
         src/helper.h
 )
@@ -21,7 +21,7 @@ target_include_directories(cpu_dbscan PUBLIC src)
 # GPU DBSCAN
 # ------------------------------
 add_library(gpu_dbscan STATIC
-        src/gpu_dbscan.cu
+        src/gpu/gpu_dbscan.cu
         src/common.h
         src/helper.h
         src/cuda_helper.h

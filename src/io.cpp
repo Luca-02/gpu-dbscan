@@ -64,7 +64,7 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, int *n) {
     while (fgets(line, sizeof(line), file) && i < *n) {
         char *end;
 
-        (*x)[i] = strtod(line, &end);
+        (*x)[i] = strtof(line, &end);
         if (*end != ',') {
             fprintf(stderr, "Expected ',' after x at line %u\n", i + 2);
             fclose(file);
@@ -75,7 +75,7 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, int *n) {
         end++;
 
         const char *start = end;
-        (*y)[i] = strtod(start, &end);
+        (*y)[i] = strtof(start, &end);
         if (start == end) {
             fprintf(stderr, "Invalid y value at line %u\n", i + 1);
             fclose(file);

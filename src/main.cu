@@ -6,8 +6,8 @@
 // #include "cuda_helper.h"
 #include "io.h"
 #include "common.h"
-#include "cpu_dbscan.h"
-#include "gpu_dbscan.h"
+#include "cpu/cpu_dbscan.h"
+#include "gpu/gpu_dbscan.h"
 
 typedef void (*dbscanFn)(int *, int *, const float *, const float *, int, float, int);
 
@@ -207,5 +207,5 @@ int datasetsRun() {
 // TODO rename all using CamelCase naming convention, better
 int main() {
     // deviceFeat();
-    return hdRun();
+    return testGpu();
 }

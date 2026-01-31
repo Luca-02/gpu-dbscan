@@ -1,7 +1,7 @@
 #include <queue>
-#include "cpu_dbscan.h"
-#include "common.h"
-#include "helper.h"
+#include "./cpu_dbscan.h"
+#include "../common.h"
+#include "../helper.h"
 
 /**
  * @brief Cleans up resources used for DBSCAN.

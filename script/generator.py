@@ -262,14 +262,13 @@ def save_dataset(index, data, n, c, center_scale, std_scale, noise_ratio):
         writer.writerow(["x", "y"])
         writer.writerows(data)
 
-
 if __name__ == "__main__":
     default_n = 10000,
     parser = argparse.ArgumentParser(description="Generate synthetic 2D dataset.")
     parser.add_argument("-n", type=int, nargs="+", default=default_n, help="List of total points for each dataset")
     parser.add_argument("-c", type=int, default=30, help="Number of clusters")
-    parser.add_argument("-cs", type=float, default=10.0, help="Scale for random cluster centers")
-    parser.add_argument("-std", type=float, default=0.3, help="Base cluster standard deviation")
+    parser.add_argument("-cs", type=float, default=1.0, help="Scale for random cluster centers")
+    parser.add_argument("-std", type=float, default=0.03, help="Base cluster standard deviation")
     parser.add_argument("-nr", type=float, default=0.001, help="Noise ratio")
     parser.add_argument("-r", type=int, default=0, help="Random seed")
     args = parser.parse_args()

@@ -62,11 +62,11 @@ void launchKernel(
         ));
     }
 
-
     int gridSize = (n + blockSize - 1) / blockSize;
     size_t smemBytes = smemFn ? smemFn(blockSize) : 0;
 
     kernel<<<gridSize, blockSize, smemBytes>>>(args...);
+    CUDA_CHECK(cudaGetLastError());
 
     if (prop && kernelName) {
         int numBlocks;

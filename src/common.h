@@ -4,11 +4,11 @@
 #define DATA_IN_PATH "../data_in/"
 #define DATA_OUT_PATH "../data_out/"
 
-#define TEST_INPUT_DATASET DATA_IN_PATH "dataset20_1000000n_30c_10d0cs_0d3std_0d001nr.csv"
+#define TEST_INPUT_DATASET DATA_IN_PATH "dataset20_1000000n_30c_1d0cs_0d03std_0d001nr.csv"
 #define TEST_OUTPUT_DBSCAN_CPU DATA_OUT_PATH "cpu.csv"
 #define TEST_OUTPUT_DBSCAN_GPU DATA_OUT_PATH "gpu.csv"
 
-#define EPSILON 0.3
+#define EPSILON 0.03
 #define MIN_PTS 8
 #define NO_CLUSTER_LABEL 0
 
