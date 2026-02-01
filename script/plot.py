@@ -28,7 +28,7 @@ def plot(x, y, clusters=None, title="Space"):
 
     legend_elements = []
     there_is_noise = False
-    dot_size = 1
+    dot_size = 10
 
     for cluster_id, points in cluster_dict.items():
         points = np.array(points)

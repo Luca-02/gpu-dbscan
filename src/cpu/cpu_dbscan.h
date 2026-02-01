@@ -10,15 +10,15 @@
  * efficient lookup of neighbors within a given radius.
  */
 typedef struct {
-    int *cellStart;    /**< Starting index of points for each cell in `cellPoints` array */
-    int *cellSize;     /**< Number of points currently in each cell */
-    int *cellPoints;   /**< Array storing indices of points for all cells */
+    uint32_t *cellStart;    /**< Starting index of points for each cell in `cellPoints` array */
+    uint32_t *cellSize;     /**< Number of points currently in each cell */
+    uint32_t *cellPoints;   /**< Array storing indices of points for all cells */
 
-    int width;          /**< Number of cells along the x-axis */
-    int height;         /**< Number of cells along the y-axis */
-    float eps;          /**< Size of each cell */
-    float xMin;         /**< Minimum x coordinate of the points */
-    float yMin;         /**< Minimum y coordinate of the points */
+    uint32_t width;         /**< Number of cells along the x-axis */
+    uint32_t height;        /**< Number of cells along the y-axis */
+    float eps;              /**< Size of each cell */
+    float xMin;             /**< Minimum x coordinate of the points */
+    float yMin;             /**< Minimum y coordinate of the points */
 } Grid;
 
 /**
@@ -50,13 +50,13 @@ inline void freeGrid(Grid *grid) {
  * @note The array cluster and points must have [n] and [n * 2] elements.
  */
 void dbscanCpu(
-    int *cluster,
-    int *clusterCount,
+    uint32_t *cluster,
+    uint32_t *clusterCount,
     const float *x,
     const float *y,
-    int n,
+    uint32_t n,
     float eps,
-    int minPts
+    uint32_t minPts
 );
 
 #endif

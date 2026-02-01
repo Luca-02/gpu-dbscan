@@ -14,13 +14,13 @@
  * @param minPts Minimum number of points required to form a core point.
  */
 void dbscan_gpu(
-    int *cluster,
-    int *clusterCount,
+    uint32_t *cluster,
+    uint32_t *clusterCount,
     const float *x,
     const float *y,
-    int n,
+    uint32_t n,
     float eps,
-    int minPts
+    uint32_t minPts
 );
 
 #endif

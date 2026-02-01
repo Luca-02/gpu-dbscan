@@ -4,30 +4,32 @@
 #include "../helper.h"
 #include "../cuda_helper.h"
 
-#define BLOCK_SIZE 128
-
 __constant__ float cXMin;
 __constant__ float cYMin;
-__constant__ int cGridWidth;
-__constant__ int cGridHeight;
-__constant__ int cCellCount;
-__constant__ int cN;
+__constant__ uint32_t cGridWidth;
+__constant__ uint32_t cGridHeight;
+__constant__ uint32_t cCellCount;
+__constant__ uint32_t cN;
 __constant__ float cEps;
 __constant__ float cInvEps;
 __constant__ float cEps2;
-__constant__ int cMinPts;
+__constant__ uint32_t cMinPts;
+
+size_t smemFindNextCore(const uint32_t blockSize) {
+    return (blockSize + WARP_SIZE - 1 / WARP_SIZE) * sizeof(int);
+}
 
 __global__ void computeBinning(
-    int *cellId,
-    int *cellPoints,
+    uint32_t *cellId,
+    uint32_t *cellPoints,
     const float *x,
     const float *y
 ) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    const int blocSize = blockDim.x * gridDim.x;
+    const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t stride = blockDim.x * gridDim.x;
 
-    for (int i = tid; i < cN; i += blocSize) {
-        int cx, cy;
+    for (uint32_t i = tid; i < cN; i += stride) {
+        uint32_t cx, cy;
         pointCellCoordinates(
             &cx, &cy,
             x[i], y[i],
@@ -40,23 +42,23 @@ __global__ void computeBinning(
 }
 
 __global__ void buildBinExtreme(
-    int *cellStart,
-    int *cellEnd,
-    const int *cellId
+    uint32_t *cellStart,
+    uint32_t *cellEnd,
+    const uint32_t *cellId
 ) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    const int blocSize = blockDim.x * gridDim.x;
+    const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t stride = blockDim.x * gridDim.x;
 
-    for (int i = tid; i < cN; i += blocSize) {
-        const int lane = threadIdx.x % warpSize;
-        const int cid = cellId[i];
+    for (uint32_t i = tid; i < cN; i += stride) {
+        const uint32_t lane = threadIdx.x & (warpSize - 1); // threadIdx.x % 32
+        const uint32_t cid = cellId[i];
 
-        int prevCid = __shfl_up_sync(0xffffffff, cid, 1, warpSize);
+        uint32_t prevCid = __shfl_up_sync(0xffffffff, cid, 1, warpSize);
         if (lane == 0 && i > 0) {
             prevCid = cellId[i - 1];
         }
 
-        int nextCid = __shfl_down_sync(0xffffffff, cid, 1, warpSize);
+        uint32_t nextCid = __shfl_down_sync(0xffffffff, cid, 1, warpSize);
         if (lane == warpSize - 1 && i + 1 < cN) {
             nextCid = cellId[i + 1];
         }
@@ -71,90 +73,129 @@ __global__ void buildBinExtreme(
 }
 
 __global__ void computeIsCoreArr(
-    bool *isCoreArr,
+    uint8_t *isCoreArr,
     const float *x,
     const float *y,
-    const int *cellStart,
-    const int *cellEnd,
-    const int *cellPoints
+    const uint32_t *cellStart,
+    const uint32_t *cellEnd,
+    const uint32_t *cellPoints
 ) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t stride = blockDim.x * gridDim.x;
 
-    if (tid >= cN) return;
+    for (uint32_t i = tid; i < cN; i += stride) {
+        const float xi = x[i];
+        const float yi = y[i];
 
-    const float xi = x[tid];
-    const float yi = y[tid];
+        uint32_t cx, cy;
+        pointCellCoordinates(
+            &cx, &cy,
+            x[i], y[i],
+            cXMin, cYMin, cInvEps
+        );
 
-    int cx, cy;
-    pointCellCoordinates(
-        &cx, &cy,
-        x[tid], y[tid],
-        cXMin, cYMin, cInvEps
-    );
+        uint32_t count = 0;
 
-    int count = 0;
+        #pragma unroll
+        for (int idx = 0; idx < 9; ++idx) {
+            const int dx = idx / 3 - 1;
+            const int dy = idx % 3 - 1;
 
-#pragma unroll
-    for (int idx = 0; idx < 9; ++idx) {
-        const int dx = idx / 3 - 1;
-        const int dy = idx % 3 - 1;
+            // Mask which is 0 if the cell is outside the border, 1 otherwise
+            uint8_t inBounds = 1;
+            inBounds &= !(dx < 0 && cx < (uint32_t) -dx);
+            inBounds &= !(dy < 0 && cy < (uint32_t) -dy);
+            inBounds &= cx + dx < cGridWidth;
+            inBounds &= cy + dy < cGridHeight;
 
-        const int nx = cx + dx;
-        const int ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= cGridWidth || ny >= cGridHeight) continue;
+            const uint32_t nx = cx + dx;
+            const uint32_t ny = cy + dy;
 
-        const int nid = linearCellId(nx, ny, cGridWidth);
-        const int start = cellStart[nid];
-        const int end = cellEnd[nid];
+            const uint32_t nid = linearCellId(nx, ny, cGridWidth);
+            const uint32_t start = inBounds ? cellStart[nid] : 0;
+            const uint32_t end = inBounds ? cellEnd[nid] : 0;
 
-        for (int k = start; k < end; k++) {
-            const int j = cellPoints[k];
-
-            if (tid != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) && ++count >= cMinPts) {
-                isCoreArr[tid] = true;
-                return;
+            for (uint32_t k = start; k < end; k++) {
+                const uint32_t j = cellPoints[k];
+                const uint8_t valid = i != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2);
+                count += valid;
             }
         }
-    }
 
-    isCoreArr[tid] = isCore(count, cMinPts);
+        isCoreArr[i] = isCore(count, cMinPts);
+    }
 }
 
 __global__ void findNextCore(
-    int *nextCore,
-    const int *cluster,
-    const bool *isCoreArr,
-    const int startIdx
+    uint32_t *nextCore,
+    const uint32_t *cluster,
+    const uint8_t *isCoreArr,
+    const uint32_t startIdx
 ) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    const int blockSize = blockDim.x * gridDim.x;
+    extern __shared__ uint32_t warpMins[];
 
-    for (int i = tid + startIdx; i < cN; i += blockSize) {
+    const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t stride = blockDim.x * gridDim.x;
+    const uint32_t lane = threadIdx.x & (warpSize - 1); // threadIdx.x % 32
+    const uint32_t wid = threadIdx.x >> 5; // threadIdx.x / 32
+
+    uint32_t localMin = UINT_MAX;
+
+    for (uint32_t i = tid + startIdx; i < cN; i += stride) {
         if (isCoreArr[i] && cluster[i] == NO_CLUSTER_LABEL) {
-            atomicMin(nextCore, i);
-            return;
+            localMin = min(localMin, i);
+            break;
+        }
+    }
+
+    // Reduce minimum within warp
+    #pragma unroll
+    for (uint32_t offset = warpSize / 2; offset > 0; offset >>= 1) {
+        const uint32_t other = __shfl_down_sync(0xffffffff, localMin, offset);
+        localMin = min(localMin, other);
+    }
+
+    // Store each warp minimum
+    if (lane == 0) {
+        warpMins[wid] = localMin;
+    }
+
+    __syncthreads();
+
+    // Reduce warp minimums within warp 0
+    if (wid == 0) {
+        uint32_t warpMin = lane < blockDim.x >> 5 ? warpMins[lane] : UINT_MAX;
+
+        #pragma unroll
+        for (uint32_t offset = warpSize / 2; offset > 0; offset >>= 1) {
+            const uint32_t other = __shfl_down_sync(0xffffffff, warpMin, offset);
+            warpMin = min(warpMin, other);
+        }
+
+        if (lane == 0 && warpMin != cN) {
+            atomicMin(nextCore, warpMin);
         }
     }
 }
 
 __global__ void bfsExpand(
-    int *cluster,
-    int *frontier,
-    int *nextFrontier,
-    int *nextFrontierSize,
+    uint32_t *cluster,
+    uint32_t *frontier,
+    uint32_t *nextFrontier,
+    uint32_t *nextFrontierSize,
     const float *x,
     const float *y,
-    const int *cellStart,
-    const int *cellEnd,
-    const int *cellPoints,
-    const bool *isCoreArr,
-    const int frontierSize,
-    const int clusterId,
-    const int level,
-    const int root
+    const uint32_t *cellStart,
+    const uint32_t *cellEnd,
+    const uint32_t *cellPoints,
+    const uint8_t *isCoreArr,
+    const uint32_t frontierSize,
+    const uint32_t clusterId,
+    const uint32_t level,
+    const uint32_t root
 ) {
-    // TODO add shared frontier
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t stride = blockDim.x * gridDim.x;
 
     // Assign cluster to core point
     if (tid == 0 && level == 0) {
@@ -164,54 +205,61 @@ __global__ void bfsExpand(
 
     __syncthreads();
 
-    if (tid >= frontierSize) return;
+    for (uint32_t f = tid; f < frontierSize; f += stride) {
+        const uint32_t i = frontier[f];
+        const float xi = x[i];
+        const float yi = y[i];
 
-    const int i = frontier[tid];
-    const float xi = x[i];
-    const float yi = y[i];
+        uint32_t cx, cy;
+        pointCellCoordinates(
+            &cx, &cy,
+            xi, yi,
+            cXMin, cYMin, cInvEps
+        );
 
-    int cx, cy;
-    pointCellCoordinates(
-        &cx, &cy,
-        xi, yi,
-        cXMin, cYMin, cInvEps
-    );
+        #pragma unroll
+        for (int idx = 0; idx < 9; ++idx) {
+            const int dx = idx / 3 - 1;
+            const int dy = idx % 3 - 1;
 
-#pragma unroll
-    for (int idx = 0; idx < 9; ++idx) {
-        const int dx = idx / 3 - 1;
-        const int dy = idx % 3 - 1;
+            // Mask which is 0 if the cell is outside the border, 1 otherwise
+            uint8_t inBounds = 1;
+            inBounds &= !(dx < 0 && cx < (uint32_t) -dx);
+            inBounds &= !(dy < 0 && cy < (uint32_t) -dy);
+            inBounds &= cx + dx < cGridWidth;
+            inBounds &= cy + dy < cGridHeight;
 
-        const int nx = cx + dx;
-        const int ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= cGridWidth || ny >= cGridHeight) continue;
+            const uint32_t nx = cx + dx;
+            const uint32_t ny = cy + dy;
 
-        const int nid = linearCellId(nx, ny, cGridWidth);
-        const int start = cellStart[nid];
-        const int end = cellEnd[nid];
+            const uint32_t nid = linearCellId(nx, ny, cGridWidth);
+            const uint32_t start = inBounds ? cellStart[nid] : 0;
+            const uint32_t end = inBounds ? cellEnd[nid] : 0;
 
-        for (int k = start; k < end; k++) {
-            const int j = cellPoints[k];
+            for (uint32_t k = start; k < end; k++) {
+                const uint32_t j = cellPoints[k];
+                if (i == j || !isEpsNeighbor(xi, yi, x[j], y[j], cEps2)) continue;
 
-            // Add neighbor to frontier iff it is not yet assigned to a cluster and is a core point
-            if (i != j && isEpsNeighbor(xi, yi, x[j], y[j], cEps2) &&
-                atomicCAS(&cluster[j], NO_CLUSTER_LABEL, clusterId) == NO_CLUSTER_LABEL &&
-                isCoreArr[j]) {
-                const int pos = atomicAdd(nextFrontierSize, 1);
-                nextFrontier[pos] = j;
+                const uint32_t old = atomicCAS(&cluster[j], NO_CLUSTER_LABEL, clusterId);
+
+                // Add neighbor to frontier iff it is not yet assigned to a cluster and is a core point
+                if (old == NO_CLUSTER_LABEL && isCoreArr[j]) {
+                    const uint32_t pos = atomicAdd(nextFrontierSize, 1);
+                    nextFrontier[pos] = j;
+                }
             }
         }
     }
 }
 
 void dbscan_gpu(
-    int *cluster,
-    int *clusterCount,
+    uint32_t *cluster,
+    uint32_t *clusterCount,
     const float *x,
     const float *y,
-    const int n,
+    const uint32_t n,
     const float eps,
-    const int minPts
+    const uint32_t minPts
 ) {
     // int device;
     // cudaDeviceProp prop;
@@ -220,65 +268,64 @@ void dbscan_gpu(
 
     float xMin = x[0], xMax = x[0];
     float yMin = y[0], yMax = y[0];
-    for (int i = 1; i < n; i++) {
+    for (uint32_t i = 1; i < n; i++) {
         xMin = fmin(xMin, x[i]);
         xMax = fmax(xMax, x[i]);
         yMin = fmin(yMin, y[i]);
         yMax = fmax(yMax, y[i]);
     }
 
-    const int gridWidth = ceil((xMax - xMin) / eps + 1);
-    const int gridHeight = ceil((yMax - yMin) / eps + 1);
-    const int cellCount = gridWidth * gridHeight;
+    const uint32_t gridWidth = ceil((xMax - xMin) / eps + 1);
+    const uint32_t gridHeight = ceil((yMax - yMin) / eps + 1);
+    const uint32_t cellCount = gridWidth * gridHeight;
     const float invEps = 1.0 / eps;
     const float eps2 = eps * eps;
 
-    bool *hIsCoreArr = (bool *) malloc_s(n * sizeof(bool));
-    if (!hIsCoreArr) return;
-
-    int *dCluster;
+    uint32_t *dCluster;
     float *dX, *dY;
-    int *dCellId;
-    int *dCellStart;
-    int *dCellEnd;
-    int *dCellPoints;
-    bool *dIsCoreArr;
-    int *dFrontier;
-    int *dNextFrontier;
-    int *dNextCore;
-    int *dNextFrontierSize;
+    uint32_t *dCellId;
+    uint32_t *dCellStart;
+    uint32_t *dCellEnd;
+    uint32_t *dCellPoints;
+    uint8_t *dIsCoreArr;
+    uint32_t *dFrontier;
+    uint32_t *dNextFrontier;
+    uint32_t *dNextCore;
+    uint32_t *dNextFrontierSize;
 
-    CUDA_CHECK(cudaMalloc(&dCluster, n * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&dCluster, n * sizeof(uint32_t)));
     CUDA_CHECK(cudaMalloc(&dX, n * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&dY, n * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dCellId, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dCellStart, cellCount * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dCellEnd, cellCount * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dCellPoints, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dIsCoreArr, n * sizeof(bool)));
-    CUDA_CHECK(cudaMalloc(&dFrontier, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dNextFrontier, n * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dNextCore, sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&dNextFrontierSize, sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&dCellId, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dCellStart, cellCount * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dCellEnd, cellCount * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dCellPoints, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dIsCoreArr, n * sizeof(uint8_t)));
+    CUDA_CHECK(cudaMalloc(&dFrontier, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dNextFrontier, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dNextCore, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dNextFrontierSize, sizeof(uint32_t)));
 
     CUDA_CHECK(cudaMemcpyToSymbol(cXMin, &xMin, sizeof(float)));
     CUDA_CHECK(cudaMemcpyToSymbol(cYMin, &yMin, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cGridWidth, &gridWidth, sizeof(int)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cGridHeight, &gridHeight, sizeof(int)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cCellCount, &cellCount, sizeof(int)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cN, &n, sizeof(int)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cGridWidth, &gridWidth, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cGridHeight, &gridHeight, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cCellCount, &cellCount, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cN, &n, sizeof(uint32_t)));
     CUDA_CHECK(cudaMemcpyToSymbol(cEps, &eps, sizeof(float)));
     CUDA_CHECK(cudaMemcpyToSymbol(cInvEps, &invEps, sizeof(float)));
     CUDA_CHECK(cudaMemcpyToSymbol(cEps2, &eps2, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cMinPts, &minPts, sizeof(int)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cMinPts, &minPts, sizeof(uint32_t)));
 
     CUDA_CHECK(cudaMemcpy(dX, x, n * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(dY, y, n * sizeof(float), cudaMemcpyHostToDevice));
 
-    CUDA_CHECK(cudaMemset(dCluster, NO_CLUSTER_LABEL, n * sizeof(int)));
+    CUDA_CHECK(cudaMemset(dCluster, NO_CLUSTER_LABEL, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemset(dCellStart, 0, cellCount * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemset(dCellEnd, 0, cellCount * sizeof(uint32_t)));
 
     launchKernel(
-        computeBinning, nullptr, n,
+        computeBinning, n,
         dCellId, dCellPoints, dX, dY
     );
 
@@ -290,31 +337,27 @@ void dbscan_gpu(
     );
 
     launchKernel(
-        buildBinExtreme, nullptr, n,
+        buildBinExtreme, n,
         dCellStart, dCellEnd, dCellId
     );
 
     launchKernel(
-        computeIsCoreArr, nullptr, n,
+        computeIsCoreArr, n,
         dIsCoreArr, dX, dY, dCellStart, dCellEnd, dCellPoints
     );
 
-    CUDA_CHECK(cudaMemcpy(hIsCoreArr, dIsCoreArr, n * sizeof(bool), cudaMemcpyDeviceToHost));
-
-    dim3 block(BLOCK_SIZE);
-
-    int startIdx = 0;
-    int hClusterCount = NO_CLUSTER_LABEL;
-    for (int iter = 0; iter < n; iter++) {
-        int hNextCore = n;
-        CUDA_CHECK(cudaMemset(dNextCore, hNextCore, sizeof(int)));
+    uint32_t startIdx = 0;
+    uint32_t hClusterCount = NO_CLUSTER_LABEL;
+    for (uint32_t iter = 0; iter < n; iter++) {
+        uint32_t hNextCore = n;
+        CUDA_CHECK(cudaMemcpy(dNextCore, &hNextCore,sizeof(uint32_t), cudaMemcpyHostToDevice));
 
         launchKernel(
-            findNextCore, nullptr, n - startIdx,
+            findNextCore, smemFindNextCore, n - startIdx,
             dNextCore, dCluster, dIsCoreArr, startIdx
         );
 
-        CUDA_CHECK(cudaMemcpy(&hNextCore, dNextCore, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&hNextCore, dNextCore, sizeof(uint32_t), cudaMemcpyDeviceToHost));
 
         // If no more core points exit loop
         if (hNextCore >= n) break;
@@ -322,32 +365,28 @@ void dbscan_gpu(
         startIdx = hNextCore + 1;
         hClusterCount++;
 
-        int level = 0;
-        int frontier_size = 1;
+        uint32_t level = 0;
+        uint32_t frontier_size = 1;
         while (frontier_size > 0) {
-            CUDA_CHECK(cudaMemset(dNextFrontierSize, 0, sizeof(int)));
+            CUDA_CHECK(cudaMemset(dNextFrontierSize, 0, sizeof(uint32_t)));
 
-            dim3 bfs_grid((frontier_size + block.x - 1) / block.x);
-
-            bfsExpand<<<bfs_grid, block>>>(
-                dCluster, dFrontier, dNextFrontier,
-                dNextFrontierSize, dX, dY, dCellStart,
-                dCellEnd, dCellPoints, dIsCoreArr,
+            launchKernel(
+                bfsExpand, frontier_size,
+                dCluster, dFrontier, dNextFrontier, dNextFrontierSize,
+                dX, dY, dCellStart, dCellEnd, dCellPoints, dIsCoreArr,
                 frontier_size, hClusterCount, level, hNextCore
             );
-            CUDA_CHECK(cudaGetLastError());
 
             level++;
-            CUDA_CHECK(cudaMemcpy(&frontier_size, dNextFrontierSize, sizeof(int), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(&frontier_size, dNextFrontierSize, sizeof(uint32_t), cudaMemcpyDeviceToHost));
             std::swap(dFrontier, dNextFrontier);
         }
     }
 
     *clusterCount = hClusterCount;
 
-    CUDA_CHECK(cudaMemcpy(cluster, dCluster, n * sizeof(int), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(cluster, dCluster, n * sizeof(uint32_t), cudaMemcpyDeviceToHost));
 
-    free(hIsCoreArr);
     CUDA_CHECK(cudaFree(dCluster));
     CUDA_CHECK(cudaFree(dX));
     CUDA_CHECK(cudaFree(dY));

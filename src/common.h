@@ -4,7 +4,7 @@
 #define DATA_IN_PATH "../data_in/"
 #define DATA_OUT_PATH "../data_out/"
 
-#define TEST_INPUT_DATASET DATA_IN_PATH "dataset20_1000000n_30c_1d0cs_0d03std_0d001nr.csv"
+#define TEST_INPUT_DATASET DATA_IN_PATH "dataset2_10000n_30c_1d0cs_0d03std_0d001nr.csv"
 #define TEST_OUTPUT_DBSCAN_CPU DATA_OUT_PATH "cpu.csv"
 #define TEST_OUTPUT_DBSCAN_GPU DATA_OUT_PATH "gpu.csv"
 
@@ -62,16 +62,16 @@ inline int compareDatasetNames(const void *a, const void *b) {
  * @param invEps The inverse of the epsilon distance.
  */
 HD inline void pointCellCoordinates(
-    int *cx,
-    int *cy,
+    uint32_t *cx,
+    uint32_t *cy,
     const float x,
     const float y,
     const float xMin,
     const float yMin,
     const float invEps
 ) {
-    *cx = (int) ((x - xMin) * invEps);
-    *cy = (int) ((y - yMin) * invEps);
+    *cx = (uint32_t) ((x - xMin) * invEps);
+    *cy = (uint32_t) ((y - yMin) * invEps);
 }
 
 /**
@@ -83,7 +83,7 @@ HD inline void pointCellCoordinates(
  * @param width The width of the grid.
  * @return The cell ID.
  */
-HD inline int linearCellId(const int cx, const int cy, const int width) {
+HD inline uint32_t linearCellId(const uint32_t cx, const uint32_t cy, const uint32_t width) {
     return cy * width + cx;
 }
 
@@ -96,7 +96,7 @@ HD inline int linearCellId(const int cx, const int cy, const int width) {
  *
  * @note The point itself is counted in the degree.
  */
-HD inline bool isCore(const int degree, const int minPts) {
+HD inline bool isCore(const uint32_t degree, const uint32_t minPts) {
     return degree + 1 >= minPts;
 }
 

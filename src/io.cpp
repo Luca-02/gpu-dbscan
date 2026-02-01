@@ -7,6 +7,56 @@
 #include "helper.h"
 
 /**
+ * @brief Lists all files in a folder, allocating memory dynamically.
+ *
+ * @param folderPath The path to the folder.
+ * @param fileNames Pointer to dynamically allocated array of strings.
+ * @param fileCount Pointer to where the number of files will be stored.
+ *
+ * @note Memory for fileNames array is dynamically allocated using malloc and must be freed by the caller.
+ */
+bool listFilesInFolder(const char *folderPath, char ***fileNames, uint32_t *fileCount) {
+    *fileNames = nullptr;
+    *fileCount = 0;
+
+    if (!std::filesystem::exists(folderPath)) {
+        fprintf(stderr, "Folder %s does not exist\n", folderPath);
+        return false;
+    }
+
+    // First pass: count files
+    for (const auto &entry: std::filesystem::directory_iterator(folderPath)) {
+        if (entry.is_regular_file()) {
+            (*fileCount)++;
+        }
+    }
+
+    if (*fileCount == 0) {
+        fprintf(stderr, "No files found in folder %s\n", folderPath);
+        return false;
+    }
+
+    *fileNames = (char **) malloc(*fileCount * sizeof(char *));
+    if (!*fileNames) return false;
+
+    // Second pass: fill the array
+    uint32_t idx = 0;
+    for (const auto &entry: std::filesystem::directory_iterator(folderPath)) {
+        if (!entry.is_regular_file()) continue;
+
+        std::string fileName = entry.path().filename().string();
+        (*fileNames)[idx] = (char *) malloc((fileName.size() + 1) * sizeof(char));
+        if (!(*fileNames)[idx]) {
+            return false;
+        }
+        strcpy((*fileNames)[idx], fileName.c_str());
+        idx++;
+    }
+
+    return true;
+}
+
+/**
  * @brief Parses a CSV dataset file containing points in 2D space.
  * The CSV file is expected to have a header line, followed by lines containing
  * two floating-point numbers separated by a comma, representing x and y coordinates.
@@ -19,7 +69,7 @@
  *
  * @note Memory for x and y array is dynamically allocated using malloc and must be freed by the caller.
  */
-bool parseDatasetFile(const char *fileName, float **x, float **y, int *n) {
+bool parseDatasetFile(const char *fileName, float **x, float **y, uint32_t *n) {
     *x = nullptr;
     *y = nullptr;
     *n = 0;
@@ -60,7 +110,7 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, int *n) {
     }
 
     // Second pass: fill the arrays
-    int i = 0;
+    uint32_t i = 0;
     while (fgets(line, sizeof(line), file) && i < *n) {
         char *end;
 
@@ -102,7 +152,7 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, int *n) {
  *
  * @note The array points and cluster must have [n * 2] and [n] elements.
  */
-void writeDbscanFile(const char *fileName, const float *x, const float *y, const int *cluster, const int n) {
+void writeDbscanFile(const char *fileName, const float *x, const float *y, const uint32_t *cluster, const uint32_t n) {
     if (!std::filesystem::exists(DATA_OUT_PATH)) {
         std::filesystem::create_directory(DATA_OUT_PATH);
     }
@@ -116,59 +166,9 @@ void writeDbscanFile(const char *fileName, const float *x, const float *y, const
     // Write header
     fprintf(file, "x,y,cluster\n");
 
-    for (int i = 0; i < n; i++) {
+    for (uint32_t i = 0; i < n; i++) {
         fprintf(file, "%.7f,%.7f,%u\n", x[i], y[i], cluster[i]);
     }
 
     fclose(file);
-}
-
-/**
- * @brief Lists all files in a folder, allocating memory dynamically.
- *
- * @param folderPath The path to the folder.
- * @param fileNames Pointer to dynamically allocated array of strings.
- * @param fileCount Pointer to where the number of files will be stored.
- *
- * @note Memory for fileNames array is dynamically allocated using malloc and must be freed by the caller.
- */
-bool listFilesInFolder(const char *folderPath, char ***fileNames, int *fileCount) {
-    *fileNames = nullptr;
-    *fileCount = 0;
-
-    if (!std::filesystem::exists(folderPath)) {
-        fprintf(stderr, "Folder %s does not exist\n", folderPath);
-        return false;
-    }
-
-    // First pass: count files
-    for (const auto &entry : std::filesystem::directory_iterator(folderPath)) {
-        if (entry.is_regular_file()) {
-            (*fileCount)++;
-        }
-    }
-
-    if (*fileCount == 0) {
-        fprintf(stderr, "No files found in folder %s\n", folderPath);
-        return false;
-    }
-
-    *fileNames = (char **) malloc(*fileCount * sizeof(char *));
-    if (!*fileNames) return false;
-
-    // Second pass: fill the array
-    int idx = 0;
-    for (const auto &entry : std::filesystem::directory_iterator(folderPath)) {
-        if (!entry.is_regular_file()) continue;
-
-        std::string fileName = entry.path().filename().string();
-        (*fileNames)[idx] = (char *) malloc((fileName.size() + 1) * sizeof(char));
-        if (!(*fileNames)[idx]) {
-            return false;
-        }
-        strcpy((*fileNames)[idx], fileName.c_str());
-        idx++;
-    }
-
-    return true;
 }
