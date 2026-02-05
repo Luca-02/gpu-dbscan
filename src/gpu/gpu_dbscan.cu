@@ -4,6 +4,9 @@
 #include "../helper.h"
 #include "../cuda_helper.h"
 
+#define MAX_BOUND_ITERATION 3
+#define MIN_BOUND_INPUT_SIZE 1024
+
 __constant__ float cXMin;
 __constant__ float cYMin;
 __constant__ uint32_t cGridWidth;
@@ -28,8 +31,11 @@ __global__ void computeBounds(
     float *xMaxOut,
     float *yMinOut,
     float *yMaxOut,
-    const float *x,
-    const float *y
+    const float *xMinIn,
+    const float *xMaxIn,
+    const float *yMinIn,
+    const float *yMaxIn,
+    const uint32_t n
 ) {
     extern __shared__ float warpBounds[];
 
@@ -49,11 +55,11 @@ __global__ void computeBounds(
     float localMinY = FLT_MAX, localMaxY = -FLT_MAX;
 
     // Each thread computes local bounds for its points
-    for (uint32_t i = tid; i < cN; i += stride) {
-        localMinX = fminf(localMinX, x[i]);
-        localMaxX = fmaxf(localMaxX, x[i]);
-        localMinY = fminf(localMinY, y[i]);
-        localMaxY = fmaxf(localMaxY, y[i]);
+    for (uint32_t i = tid; i < n; i += stride) {
+        localMinX = fminf(localMinX, xMinIn[i]);
+        localMaxX = fmaxf(localMaxX, xMaxIn[i]);
+        localMinY = fminf(localMinY, yMinIn[i]);
+        localMaxY = fmaxf(localMaxY, yMaxIn[i]);
     }
 
     // Reducing within the warp using shuffle operations
@@ -375,41 +381,76 @@ void dbscan_gpu(
     CUDA_CHECK(cudaMemcpyToSymbol(cMinPts, &minPts, sizeof(uint32_t)));
 
     /* Compute points bounds */
-    int gridSize, blockSize;
-    getOptimalKernelSize(&gridSize, &blockSize, computeBounds, smemComputeBounds, n);
+    int boundGridSize, boundBlockSize;
+    getOptimalKernelSize(
+        &boundGridSize, &boundBlockSize,
+        computeBounds, smemComputeBounds, n
+    );
 
-    float *dXMinPartial, *dXMaxPartial, *dYMinPartial, *dYMaxPartial;
-    CUDA_CHECK(cudaMalloc(&dXMinPartial, gridSize * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dXMaxPartial, gridSize * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dYMinPartial, gridSize * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dYMaxPartial, gridSize * sizeof(float)));
+    float *dXMinA, *dXMaxA, *dYMinA, *dYMaxA;
+    float *dXMinB, *dXMaxB, *dYMinB, *dYMaxB;
+    CUDA_CHECK(cudaMalloc(&dXMinA, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dXMaxA, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dYMinA, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dYMaxA, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dXMinB, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dXMaxB, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dYMinB, boundGridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dYMaxB, boundGridSize * sizeof(float)));
 
     launchKernel(
         computeBounds, smemComputeBounds, n,
-        dXMinPartial, dXMaxPartial, dYMinPartial, dYMaxPartial, dX, dY
+        dXMinA, dXMaxA, dYMinA, dYMaxA,
+        dX, dX, dY, dY, n
     );
 
-    float *hXMin = (float *) malloc_s(gridSize * sizeof(float));
-    float *hXMax = (float *) malloc_s(gridSize * sizeof(float));
-    float *hYMin = (float *) malloc_s(gridSize * sizeof(float));
-    float *hYMax = (float *) malloc_s(gridSize * sizeof(float));
-    if (!hXMin || !hXMax || !hYMin || !hYMax) {
-        free(hXMin); free(hXMax); free(hYMin); free(hYMax);
+    int curN = boundGridSize;
+    int boundIter = 1;
+    float *inMinX = dXMinA, *inMaxX = dXMaxA;
+    float *inMinY = dYMinA, *inMaxY = dYMaxA;
+    float *outMinX = dXMinB, *outMaxX = dXMaxB;
+    float *outMinY = dYMinB, *outMaxY = dYMaxB;
+    while (curN > MIN_BOUND_INPUT_SIZE && boundIter <= MAX_BOUND_ITERATION) {
+        launchKernel(
+            computeBounds, smemComputeBounds, curN,
+            outMinX, outMaxX, outMinY, outMaxY,
+            inMinX, inMaxX, inMinY, inMaxY, curN
+        );
+
+        getOptimalKernelSize(
+            &boundGridSize, &boundBlockSize,
+            computeBounds, smemComputeBounds, curN
+        );
+
+        curN = boundGridSize;
+        boundIter++;
+        std::swap(inMinX, outMinX);
+        std::swap(inMaxX, outMaxX);
+        std::swap(inMinY, outMinY);
+        std::swap(inMaxY, outMaxY);
+    }
+
+    float *hXMinPartial = (float *) malloc_s(boundGridSize * sizeof(float));
+    float *hXMaxPartial = (float *) malloc_s(boundGridSize * sizeof(float));
+    float *hYMinPartial = (float *) malloc_s(boundGridSize * sizeof(float));
+    float *hYMaxPartial = (float *) malloc_s(boundGridSize * sizeof(float));
+    if (!hXMinPartial || !hXMaxPartial || !hYMinPartial || !hYMaxPartial) {
+        free(hXMinPartial); free(hXMaxPartial); free(hYMinPartial); free(hYMaxPartial);
         return;
     }
 
-    CUDA_CHECK(cudaMemcpy(hXMin, dXMinPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(hXMax, dXMaxPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(hYMin, dYMinPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(hYMax, dYMaxPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hXMinPartial, inMinX, curN * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hXMaxPartial, inMaxX, curN * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hYMinPartial, inMinY, curN * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hYMaxPartial, inMaxY, curN * sizeof(float), cudaMemcpyDeviceToHost));
 
-    float xMin = hXMin[0], xMax = hXMax[0];
-    float yMin = hYMin[0], yMax = hYMax[0];
-    for (uint32_t i = 1; i < gridSize; i++) {
-        xMin = fmin(xMin, hXMin[i]);
-        xMax = fmax(xMax, hXMax[i]);
-        yMin = fmin(yMin, hYMin[i]);
-        yMax = fmax(yMax, hYMax[i]);
+    float xMin = hXMinPartial[0], xMax = hXMaxPartial[0];
+    float yMin = hYMinPartial[0], yMax = hYMaxPartial[0];
+    for (uint32_t i = 1; i < boundGridSize; i++) {
+        xMin = fmin(xMin, hXMinPartial[i]);
+        xMax = fmax(xMax, hXMaxPartial[i]);
+        yMin = fmin(yMin, hYMinPartial[i]);
+        yMax = fmax(yMax, hYMaxPartial[i]);
     }
 
     const uint32_t gridWidth = ceil((xMax - xMin) / eps + 1);
@@ -471,7 +512,7 @@ void dbscan_gpu(
 
     uint32_t startIdx = 0;
     uint32_t hClusterCount = NO_CLUSTER_LABEL;
-    for (uint32_t iter = 0; iter < n; iter++) {
+    for (uint32_t bfsIter = 0; bfsIter < n; bfsIter++) {
         uint32_t hNextCore = n;
         CUDA_CHECK(cudaMemcpy(dNextCore, &hNextCore,sizeof(uint32_t), cudaMemcpyHostToDevice));
 
@@ -510,9 +551,21 @@ void dbscan_gpu(
 
     CUDA_CHECK(cudaMemcpy(cluster, dCluster, n * sizeof(uint32_t), cudaMemcpyDeviceToHost));
 
+    free(hXMinPartial);
+    free(hXMaxPartial);
+    free(hYMinPartial);
+    free(hYMaxPartial);
     CUDA_CHECK(cudaFree(dCluster));
     CUDA_CHECK(cudaFree(dX));
     CUDA_CHECK(cudaFree(dY));
+    CUDA_CHECK(cudaFree(dXMinA))
+    CUDA_CHECK(cudaFree(dXMaxA))
+    CUDA_CHECK(cudaFree(dYMinA))
+    CUDA_CHECK(cudaFree(dYMaxA))
+    CUDA_CHECK(cudaFree(dXMinB))
+    CUDA_CHECK(cudaFree(dXMaxB))
+    CUDA_CHECK(cudaFree(dYMinB))
+    CUDA_CHECK(cudaFree(dYMaxB))
     CUDA_CHECK(cudaFree(dCellId));
     CUDA_CHECK(cudaFree(dCellStart));
     CUDA_CHECK(cudaFree(dCellEnd));

@@ -183,31 +183,32 @@ static int testGpu() {
 }
 
 int main() {
-    char **datasetNames;
-    uint32_t fileCount;
-
-    if (!getDatasetNames(&datasetNames, &fileCount)) {
-        freeDatasetNames(&datasetNames, fileCount);
-        return EXIT_FAILURE;
-    }
-
-    printf("Processing %d datasets\n", fileCount);
-
-    uint32_t i = 0;
-    while (i < fileCount) {
-        printf("==================================================\n");
-        if (!hdDbscanRun(datasetNames[i])) {
-            break;
-        }
-        i++;
-    }
-    printf("==================================================\n");
-
-    freeDatasetNames(&datasetNames, fileCount);
-
-    if (i != fileCount) {
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
+    return testGpu();
+    // char **datasetNames;
+    // uint32_t fileCount;
+    //
+    // if (!getDatasetNames(&datasetNames, &fileCount)) {
+    //     freeDatasetNames(&datasetNames, fileCount);
+    //     return EXIT_FAILURE;
+    // }
+    //
+    // printf("Processing %d datasets\n", fileCount);
+    //
+    // uint32_t i = 0;
+    // while (i < fileCount) {
+    //     printf("==================================================\n");
+    //     if (!hdDbscanRun(datasetNames[i])) {
+    //         break;
+    //     }
+    //     i++;
+    // }
+    // printf("==================================================\n");
+    //
+    // freeDatasetNames(&datasetNames, fileCount);
+    //
+    // if (i != fileCount) {
+    //     return EXIT_FAILURE;
+    // }
+    //
+    // return EXIT_SUCCESS;
 }
