@@ -15,8 +15,89 @@ __constant__ float cInvEps;
 __constant__ float cEps2;
 __constant__ uint32_t cMinPts;
 
+size_t smemComputeBounds(const uint32_t blockSize) {
+    return 4 * blockSize / WARP_SIZE * sizeof(float);
+}
+
 size_t smemFindNextCore(const uint32_t blockSize) {
-    return (blockSize + WARP_SIZE - 1 / WARP_SIZE) * sizeof(int);
+    return blockSize / WARP_SIZE * sizeof(int);
+}
+
+__global__ void computeBounds(
+    float *xMinOut,
+    float *xMaxOut,
+    float *yMinOut,
+    float *yMaxOut,
+    const float *x,
+    const float *y
+) {
+    extern __shared__ float warpBounds[];
+
+    const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t stride = blockDim.x * gridDim.x;
+    const uint32_t lane = threadIdx.x % warpSize;
+    const uint32_t wid = threadIdx.x / warpSize;
+    const uint32_t numWarps = blockDim.x / warpSize;
+
+    float *sMinX = warpBounds;
+    float *sMaxX = warpBounds + numWarps;
+    float *sMinY = warpBounds + numWarps * 2;
+    float *sMaxY = warpBounds + numWarps * 3;
+
+    // Initialize local bound for each thread
+    float localMinX = FLT_MAX, localMaxX = -FLT_MAX;
+    float localMinY = FLT_MAX, localMaxY = -FLT_MAX;
+
+    // Each thread computes local bounds for its points
+    for (uint32_t i = tid; i < cN; i += stride) {
+        localMinX = fminf(localMinX, x[i]);
+        localMaxX = fmaxf(localMaxX, x[i]);
+        localMinY = fminf(localMinY, y[i]);
+        localMaxY = fmaxf(localMaxY, y[i]);
+    }
+
+    // Reducing within the warp using shuffle operations
+    #pragma unroll
+    for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        localMinX = fminf(localMinX, __shfl_down_sync(0xffffffff, localMinX, offset));
+        localMaxX = fmaxf(localMaxX, __shfl_down_sync(0xffffffff, localMaxX, offset));
+        localMinY = fminf(localMinY, __shfl_down_sync(0xffffffff, localMinY, offset));
+        localMaxY = fmaxf(localMaxY, __shfl_down_sync(0xffffffff, localMaxY, offset));
+    }
+
+    // The first thread of each warp saves the results in shared memory
+    if (lane == 0) {
+        sMinX[wid] = localMinX;
+        sMaxX[wid] = localMaxX;
+        sMinY[wid] = localMinY;
+        sMaxY[wid] = localMaxY;
+    }
+
+    __syncthreads();
+
+    // The first warp reduces the results of all warps
+    if (wid == 0) {
+        localMinX = lane < numWarps ? sMinX[lane] : FLT_MAX;
+        localMaxX = lane < numWarps ? sMaxX[lane] : -FLT_MAX;
+        localMinY = lane < numWarps ? sMinY[lane] : FLT_MAX;
+        localMaxY = lane < numWarps ? sMaxY[lane] : -FLT_MAX;
+
+        // Final reduction in the first warp
+        for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
+            localMinX = fminf(localMinX, __shfl_down_sync(0xffffffff, localMinX, offset));
+            localMaxX = fmaxf(localMaxX, __shfl_down_sync(0xffffffff, localMaxX, offset));
+            localMinY = fminf(localMinY, __shfl_down_sync(0xffffffff, localMinY, offset));
+            localMaxY = fmaxf(localMaxY, __shfl_down_sync(0xffffffff, localMaxY, offset));
+        }
+
+        // Thread 0 of each block writes the block's bounds to global memory
+        if (lane == 0) {
+            xMinOut[blockIdx.x] = localMinX;
+            xMaxOut[blockIdx.x] = localMaxX;
+            yMinOut[blockIdx.x] = localMinY;
+            yMaxOut[blockIdx.x] = localMaxY;
+        }
+    }
 }
 
 __global__ void computeBinning(
@@ -50,15 +131,19 @@ __global__ void buildBinExtreme(
     const uint32_t stride = blockDim.x * gridDim.x;
 
     for (uint32_t i = tid; i < cN; i += stride) {
-        const uint32_t lane = threadIdx.x & (warpSize - 1); // threadIdx.x % 32
+        const uint32_t lane = threadIdx.x % warpSize;
         const uint32_t cid = cellId[i];
 
+        // Get the previous cid from the previous thread in the warp
         uint32_t prevCid = __shfl_up_sync(0xffffffff, cid, 1, warpSize);
+        // The first thread in the warp need to get the previous cid directly from the global memory
         if (lane == 0 && i > 0) {
             prevCid = cellId[i - 1];
         }
 
+        // Get the next cid from the next thread in the warp
         uint32_t nextCid = __shfl_down_sync(0xffffffff, cid, 1, warpSize);
+        // The last thread in the warp need to get the next cid directly from the global memory
         if (lane == warpSize - 1 && i + 1 < cN) {
             nextCid = cellId[i + 1];
         }
@@ -136,11 +221,12 @@ __global__ void findNextCore(
 
     const uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     const uint32_t stride = blockDim.x * gridDim.x;
-    const uint32_t lane = threadIdx.x & (warpSize - 1); // threadIdx.x % 32
-    const uint32_t wid = threadIdx.x >> 5; // threadIdx.x / 32
+    const uint32_t lane = threadIdx.x % warpSize;
+    const uint32_t wid = threadIdx.x / warpSize;
 
     uint32_t localMin = UINT_MAX;
 
+    // Find the local minimum for each thread
     for (uint32_t i = tid + startIdx; i < cN; i += stride) {
         if (isCoreArr[i] && cluster[i] == NO_CLUSTER_LABEL) {
             localMin = min(localMin, i);
@@ -148,23 +234,23 @@ __global__ void findNextCore(
         }
     }
 
-    // Reduce minimum within warp
+    // Reduce finding minimum within each warp using shuffle operations
     #pragma unroll
     for (uint32_t offset = warpSize / 2; offset > 0; offset >>= 1) {
         const uint32_t other = __shfl_down_sync(0xffffffff, localMin, offset);
         localMin = min(localMin, other);
     }
 
-    // Store each warp minimum
+    // Store each warp minimum in shared memory
     if (lane == 0) {
         warpMins[wid] = localMin;
     }
 
     __syncthreads();
 
-    // Reduce warp minimums within warp 0
+    // Reduction via warp 0 to find the global minimum among the local minimums in shared memory
     if (wid == 0) {
-        uint32_t warpMin = lane < blockDim.x >> 5 ? warpMins[lane] : UINT_MAX;
+        uint32_t warpMin = lane < blockDim.x / warpSize ? warpMins[lane] : UINT_MAX;
 
         #pragma unroll
         for (uint32_t offset = warpSize / 2; offset > 0; offset >>= 1) {
@@ -266,23 +352,77 @@ void dbscan_gpu(
     // cudaGetDevice(&device);
     // cudaGetDeviceProperties(&prop, device);
 
-    float xMin = x[0], xMax = x[0];
-    float yMin = y[0], yMax = y[0];
-    for (uint32_t i = 1; i < n; i++) {
-        xMin = fmin(xMin, x[i]);
-        xMax = fmax(xMax, x[i]);
-        yMin = fmin(yMin, y[i]);
-        yMax = fmax(yMax, y[i]);
+    const float invEps = 1.0 / eps;
+    const float eps2 = eps * eps;
+
+    /* Allocate initial data */
+    uint32_t *dCluster;
+    float *dX, *dY;
+
+    CUDA_CHECK(cudaMalloc(&dCluster, n * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc(&dX, n * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dY, n * sizeof(float)));
+
+    CUDA_CHECK(cudaMemcpy(dX, x, n * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(dY, y, n * sizeof(float), cudaMemcpyHostToDevice));
+
+    CUDA_CHECK(cudaMemset(dCluster, NO_CLUSTER_LABEL, n * sizeof(uint32_t)));
+
+    CUDA_CHECK(cudaMemcpyToSymbol(cN, &n, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cEps, &eps, sizeof(float)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cInvEps, &invEps, sizeof(float)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cEps2, &eps2, sizeof(float)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cMinPts, &minPts, sizeof(uint32_t)));
+
+    /* Compute points bounds */
+    int gridSize, blockSize;
+    getOptimalKernelSize(&gridSize, &blockSize, computeBounds, smemComputeBounds, n);
+
+    float *dXMinPartial, *dXMaxPartial, *dYMinPartial, *dYMaxPartial;
+    CUDA_CHECK(cudaMalloc(&dXMinPartial, gridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dXMaxPartial, gridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dYMinPartial, gridSize * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dYMaxPartial, gridSize * sizeof(float)));
+
+    launchKernel(
+        computeBounds, smemComputeBounds, n,
+        dXMinPartial, dXMaxPartial, dYMinPartial, dYMaxPartial, dX, dY
+    );
+
+    float *hXMin = (float *) malloc_s(gridSize * sizeof(float));
+    float *hXMax = (float *) malloc_s(gridSize * sizeof(float));
+    float *hYMin = (float *) malloc_s(gridSize * sizeof(float));
+    float *hYMax = (float *) malloc_s(gridSize * sizeof(float));
+    if (!hXMin || !hXMax || !hYMin || !hYMax) {
+        free(hXMin); free(hXMax); free(hYMin); free(hYMax);
+        return;
+    }
+
+    CUDA_CHECK(cudaMemcpy(hXMin, dXMinPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hXMax, dXMaxPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hYMin, dYMinPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(hYMax, dYMaxPartial, gridSize * sizeof(float), cudaMemcpyDeviceToHost));
+
+    float xMin = hXMin[0], xMax = hXMax[0];
+    float yMin = hYMin[0], yMax = hYMax[0];
+    for (uint32_t i = 1; i < gridSize; i++) {
+        xMin = fmin(xMin, hXMin[i]);
+        xMax = fmax(xMax, hXMax[i]);
+        yMin = fmin(yMin, hYMin[i]);
+        yMax = fmax(yMax, hYMax[i]);
     }
 
     const uint32_t gridWidth = ceil((xMax - xMin) / eps + 1);
     const uint32_t gridHeight = ceil((yMax - yMin) / eps + 1);
     const uint32_t cellCount = gridWidth * gridHeight;
-    const float invEps = 1.0 / eps;
-    const float eps2 = eps * eps;
 
-    uint32_t *dCluster;
-    float *dX, *dY;
+    CUDA_CHECK(cudaMemcpyToSymbol(cXMin, &xMin, sizeof(float)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cYMin, &yMin, sizeof(float)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cGridWidth, &gridWidth, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cGridHeight, &gridHeight, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpyToSymbol(cCellCount, &cellCount, sizeof(uint32_t)));
+
+    /* Allocate binning data */
     uint32_t *dCellId;
     uint32_t *dCellStart;
     uint32_t *dCellEnd;
@@ -293,9 +433,6 @@ void dbscan_gpu(
     uint32_t *dNextCore;
     uint32_t *dNextFrontierSize;
 
-    CUDA_CHECK(cudaMalloc(&dCluster, n * sizeof(uint32_t)));
-    CUDA_CHECK(cudaMalloc(&dX, n * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dY, n * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&dCellId, n * sizeof(uint32_t)));
     CUDA_CHECK(cudaMalloc(&dCellStart, cellCount * sizeof(uint32_t)));
     CUDA_CHECK(cudaMalloc(&dCellEnd, cellCount * sizeof(uint32_t)));
@@ -306,24 +443,10 @@ void dbscan_gpu(
     CUDA_CHECK(cudaMalloc(&dNextCore, sizeof(uint32_t)));
     CUDA_CHECK(cudaMalloc(&dNextFrontierSize, sizeof(uint32_t)));
 
-    CUDA_CHECK(cudaMemcpyToSymbol(cXMin, &xMin, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cYMin, &yMin, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cGridWidth, &gridWidth, sizeof(uint32_t)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cGridHeight, &gridHeight, sizeof(uint32_t)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cCellCount, &cellCount, sizeof(uint32_t)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cN, &n, sizeof(uint32_t)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cEps, &eps, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cInvEps, &invEps, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cEps2, &eps2, sizeof(float)));
-    CUDA_CHECK(cudaMemcpyToSymbol(cMinPts, &minPts, sizeof(uint32_t)));
-
-    CUDA_CHECK(cudaMemcpy(dX, x, n * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(dY, y, n * sizeof(float), cudaMemcpyHostToDevice));
-
-    CUDA_CHECK(cudaMemset(dCluster, NO_CLUSTER_LABEL, n * sizeof(uint32_t)));
     CUDA_CHECK(cudaMemset(dCellStart, 0, cellCount * sizeof(uint32_t)));
     CUDA_CHECK(cudaMemset(dCellEnd, 0, cellCount * sizeof(uint32_t)));
 
+    /* Dbscan pipeline */
     launchKernel(
         computeBinning, n,
         dCellId, dCellPoints, dX, dY

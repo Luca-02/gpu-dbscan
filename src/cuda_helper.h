@@ -42,6 +42,34 @@ inline void deviceFeat() {
     printf("------------------------------------------------------------\n\n");
 }
 
+template<typename Kernel>
+void getOptimalKernelSize(
+    int *gridSize,
+    int *blockSize,
+    const Kernel kernel,
+    const smemFn smemByteFn,
+    const uint32_t n
+) {
+    CUDA_CHECK(cudaOccupancyMaxPotentialBlockSizeVariableSMem(
+        gridSize, blockSize, kernel, smemByteFn, n
+    ));
+    // int minGridSize = 0;
+    // CUDA_CHECK(cudaOccupancyMaxPotentialBlockSizeVariableSMem(
+    //     &minGridSize, blockSize, kernel, smemByteFn, n
+    // ));
+    // *gridSize = (n + *blockSize - 1) / *blockSize;
+}
+
+template<typename Kernel>
+void getOptimalKernelSize(
+    int *minGridSize,
+    int *blockSize,
+    const Kernel kernel,
+    const uint32_t n
+) {
+    getOptimalKernelSize(minGridSize, blockSize, kernel, zeroSmem, n);
+}
+
 template<typename Kernel, typename... Args>
 void launchKernel(
     const cudaDeviceProp *prop,
@@ -51,18 +79,14 @@ void launchKernel(
     const uint32_t n,
     Args... args
 ) {
-    int minGridSize = 0;
+    int gridSize = 0;
     int blockSize = 0;
 
-    CUDA_CHECK(cudaOccupancyMaxPotentialBlockSizeVariableSMem(
-        &minGridSize, &blockSize, kernel, smemByteFn, n
-    ));
+    getOptimalKernelSize(&gridSize, &blockSize, kernel, smemByteFn, n);
 
-    int gridSize = (n + blockSize - 1) / blockSize;
     size_t smemBytes = smemByteFn ? smemByteFn(blockSize) : 0;
 
     kernel<<<gridSize, blockSize, smemBytes>>>(args...);
-    // kernel<<<minGridSize, blockSize, smemBytes>>>(args...);
     CUDA_CHECK(cudaGetLastError());
 
     if (prop && kernelName) {

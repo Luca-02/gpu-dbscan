@@ -1,7 +1,29 @@
 #ifndef IO_H
 #define IO_H
+#include "./common.h"
 
 #define MAX_FILES 1024
+
+/**
+ * @brief Compares two dataset file names by their dataset number.
+ *
+ * @param a Pointer to first file name.
+ * @param b Pointer to second file name.
+ * @return Negative if a < b, positive if a > b, zero if equal.
+ */
+int compareDatasetNames(const void *a, const void *b);
+
+/**
+ * @brief Creates the output file name for the DBSCAN algorithm.
+ *
+ * @param datasetName The name of the input dataset file.
+ * @param execType The execution type of the DBSCAN algorithm.
+ * @return The output file name, or nullptr if an error occurs.
+ */
+char *makeDbscanOutputName(
+    const char *datasetName,
+    DbscanExecType execType
+);
 
 /**
  * @brief Lists all files in a folder, allocating memory dynamically.
@@ -16,24 +38,32 @@ bool listFilesInFolder(const char *folderPath, char ***fileNames, uint32_t *file
 /**
  * @brief Parses a CSV dataset file and extracts the points.
  *
- * @param fileName Input CSV file name.
+ * @param filePath Input CSV file name.
  * @param x Pointer to where the x coordinates will be stored.
  * @param y Pointer to where the y coordinates will be stored.
  * @param n Pointer to where the number of points will be stored.
  * @return True if parsing was successful, false otherwise.
  */
-bool parseDatasetFile(const char *fileName, float **x, float **y, uint32_t *n);
+bool parseDatasetFile(const char *filePath, float **x, float **y, uint32_t *n);
 
 /**
  * @brief Writes points and cluster IDs to a CSV dbscan file.
  *
+ * @param folderPath Folder path where the output file will be written.
  * @param fileName Output CSV file name.
  * @param x Pointer to the x coordinates.
  * @param y Pointer to the y coordinates.
  * @param cluster Array of cluster IDs for each point.
  * @param n Number of points.
  */
-void writeDbscanFile(const char *fileName, const float *x, const float *y, const uint32_t *cluster, uint32_t n);
+void writeDbscanFile(
+    const char *folderPath,
+    const char *fileName,
+    const float *x,
+    const float *y,
+    const uint32_t *cluster,
+    uint32_t n
+);
 
 #endif
 

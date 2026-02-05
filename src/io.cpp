@@ -2,9 +2,79 @@
 #include <cstdlib>
 #include <string>
 #include <filesystem>
-#include "io.h"
-#include "common.h"
-#include "helper.h"
+#include "./io.h"
+#include "./common.h"
+#include "./helper.h"
+
+/**
+ * @brief Compares two dataset file names by their dataset number.
+ *
+ * @param a Pointer to first file name.
+ * @param b Pointer to second file name.
+ * @return Negative if a < b, positive if a > b, zero if equal.
+ */
+int compareDatasetNames(const void *a, const void *b) {
+    const char *fa = *(const char **) a;
+    const char *fb = *(const char **) b;
+
+    const char *pa = strstr(fa, "dataset");
+    const char *pb = strstr(fb, "dataset");
+    if (!pa || !pb) {
+        return strcmp(fa, fb);
+    }
+
+    pa += 7;
+    pb += 7;
+
+    const int na = atoi(pa);
+    const int nb = atoi(pb);
+
+    if (na != nb) {
+        return na - nb;
+    }
+
+    return strcmp(fa, fb);
+}
+
+/**
+ * @brief Creates the output file name for the DBSCAN algorithm.
+ *
+ * @param datasetName The name of the input dataset file.
+ * @param execType The execution type of the DBSCAN algorithm.
+ * @return The output file name, or nullptr if an error occurs.
+ */
+char *makeDbscanOutputName(
+    const char *datasetName,
+    const DbscanExecType execType
+) {
+    if (!datasetName) return nullptr;
+
+    // Take only the filename (remove the path)
+    const char *filename = datasetName;
+    const char *slash = strrchr(datasetName, '/');
+    const char *backslash = strrchr(datasetName, '\\');
+
+    if (slash || backslash) {
+        const char *sep = slash > backslash ? slash : backslash;
+        filename = sep + 1;
+    }
+
+    const char *datasetPrefix = "dataset";
+    const size_t datasetPrefixLen = strlen(datasetPrefix);
+    const bool isDatasetPrefix = strncmp(filename, datasetPrefix, datasetPrefixLen) == 0;
+
+    const char *suffix = isDatasetPrefix ? filename + datasetPrefixLen : filename;
+    const char *execStr = execType == DbscanExecType::CPU ? "cpu" : "gpu";
+    const char *middle = "_dbscan";
+    const size_t outLen = strlen(execStr) + strlen(middle) + strlen(suffix) + 1;
+
+    char *outName = (char *) malloc(outLen);
+    if (!outName) return nullptr;
+
+    snprintf(outName, outLen, "%s%s%s", execStr, middle, suffix);
+
+    return outName;
+}
 
 /**
  * @brief Lists all files in a folder, allocating memory dynamically.
@@ -61,7 +131,7 @@ bool listFilesInFolder(const char *folderPath, char ***fileNames, uint32_t *file
  * The CSV file is expected to have a header line, followed by lines containing
  * two floating-point numbers separated by a comma, representing x and y coordinates.
  *
- * @param fileName The path to the CSV dataset file.
+ * @param filePath The path to the CSV dataset file.
  * @param x Pointer to where the x coordinates will be stored.
  * @param y Pointer to where the y coordinates will be stored.
  * @param n Pointer to where the number of points will be stored.
@@ -69,15 +139,15 @@ bool listFilesInFolder(const char *folderPath, char ***fileNames, uint32_t *file
  *
  * @note Memory for x and y array is dynamically allocated using malloc and must be freed by the caller.
  */
-bool parseDatasetFile(const char *fileName, float **x, float **y, uint32_t *n) {
+bool parseDatasetFile(const char *filePath, float **x, float **y, uint32_t *n) {
     *x = nullptr;
     *y = nullptr;
     *n = 0;
 
     char line[512];
-    FILE *file = fopen(fileName, "r");
+    FILE *file = fopen(filePath, "r");
     if (!file) {
-        fprintf(stderr, "Error opening file %s\n", fileName);
+        fprintf(stderr, "Error opening file %s\n", filePath);
         return false;
     }
 
@@ -94,7 +164,7 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, uint32_t *n) {
     }
 
     if (*n == 0) {
-        fprintf(stderr, "No data found in file %s\n", fileName);
+        fprintf(stderr, "No data found in file %s\n", filePath);
         fclose(file);
         return false;
     }
@@ -144,7 +214,8 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, uint32_t *n) {
  * The output file will have a header line "x,y,cluster" and then one line per point,
  * listing its x and y coordinates and the corresponding cluster ID.
  *
- * @param fileName The path to the CSV output file.
+ * @param folderPath The path to the folder where the output file will be written.
+ * @param fileName The dbscan output file name.
  * @param x Pointer to the array of x coordinates corresponding to each point.
  * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param cluster Pointer to the array of cluster IDs corresponding to each point.
@@ -152,12 +223,21 @@ bool parseDatasetFile(const char *fileName, float **x, float **y, uint32_t *n) {
  *
  * @note The array points and cluster must have [n * 2] and [n] elements.
  */
-void writeDbscanFile(const char *fileName, const float *x, const float *y, const uint32_t *cluster, const uint32_t n) {
-    if (!std::filesystem::exists(DATA_OUT_PATH)) {
-        std::filesystem::create_directory(DATA_OUT_PATH);
+void writeDbscanFile(
+    const char *folderPath,
+    const char *fileName,
+    const float *x,
+    const float *y,
+    const uint32_t *cluster,
+    const uint32_t n
+) {
+    if (!std::filesystem::exists(folderPath)) {
+        std::filesystem::create_directory(folderPath);
     }
 
-    FILE *file = fopen(fileName, "w");
+    const std::string path = folderPath + std::string(fileName);
+
+    FILE *file = fopen(path.c_str(), "w");
     if (!file) {
         fprintf(stderr, "Error opening file %s\n", fileName);
         return;

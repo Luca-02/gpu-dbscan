@@ -30,7 +30,7 @@ static void cleanup(Grid *grid, uint32_t **queue, uint32_t **neighbors) {
  * @param eps Neighborhood radius (cell size).
  * @return True if the grid was successfully initialized, false otherwise.
  */
-bool initGrid(Grid *grid, const float *x, const float *y, const uint32_t n, const float eps) {
+static bool initGrid(Grid *grid, const float *x, const float *y, const uint32_t n, const float eps) {
     float xMin = x[0], xMax = x[0];
     float yMin = y[0], yMax = y[0];
 
@@ -108,7 +108,7 @@ bool initGrid(Grid *grid, const float *x, const float *y, const uint32_t n, cons
  *
  * @note The array neighbor must have [n] elements.
  */
-uint32_t findNeighbors(
+static uint32_t findNeighbors(
     uint32_t *neighbor,
     const float *x,
     const float *y,
@@ -168,7 +168,7 @@ uint32_t findNeighbors(
  *
  * @note The arrays neighbor and queue must have [n] elements.
  */
-void expandCluster(
+static void expandCluster(
     uint32_t *cluster,
     uint32_t *queue,
     uint32_t *neighbors,

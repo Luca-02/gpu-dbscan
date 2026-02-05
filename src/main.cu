@@ -3,14 +3,14 @@
 #include <ctime>
 #include <string>
 #include "helper.h"
-#include "io.h"
-#include "common.h"
-#include "cpu/cpu_dbscan.h"
-#include "gpu/gpu_dbscan.h"
+#include "./io.h"
+#include "./common.h"
+#include "./cpu/cpu_dbscan.h"
+#include "./gpu/gpu_dbscan.h"
 
 typedef void (*dbscanFn)(uint32_t *, uint32_t *, const float *, const float *, uint32_t, float, uint32_t);
 
-void freeDatasetNames(char ***datasetNames, const uint32_t fileCount) {
+static void freeDatasetNames(char ***datasetNames, const uint32_t fileCount) {
     if (*datasetNames) {
         for (uint32_t i = 0; i < fileCount; i++) {
             if ((*datasetNames)[i]) free((*datasetNames)[i]);
@@ -21,34 +21,21 @@ void freeDatasetNames(char ***datasetNames, const uint32_t fileCount) {
     *datasetNames = nullptr;
 }
 
-void freePoints(float **x, float **y) {
+static void freePoints(float **x, float **y) {
     if (*x) free(*x);
     if (*y) free(*y);
     *x = nullptr;
     *y = nullptr;
 }
 
-void freeClusters(uint32_t **clusterCpu, uint32_t **clusterGpu) {
+static void freeClusters(uint32_t **clusterCpu, uint32_t **clusterGpu) {
     if (*clusterCpu) free(*clusterCpu);
     if (*clusterGpu) free(*clusterGpu);
     *clusterCpu = nullptr;
     *clusterGpu = nullptr;
 }
 
-void cleanup(
-    char ***datasetNames,
-    float **x,
-    float **y,
-    uint32_t **clusterCpu,
-    uint32_t **clusterGpu,
-    const uint32_t fileCount
-) {
-    freeDatasetNames(datasetNames, fileCount);
-    freePoints(x, y);
-    freeClusters(clusterCpu, clusterGpu);
-}
-
-void assertion(
+static void assertion(
     const uint32_t *clusterCpu,
     const uint32_t *clusterGpu,
     const uint32_t clusterCountCpu,
@@ -56,13 +43,13 @@ void assertion(
     const uint32_t n
 ) {
     assert(clusterCountCpu == clusterCountGpu);
-
     for (uint32_t i = 0; i < n; i++) {
         assert(clusterCpu[i] == clusterGpu[i]);
     }
+    printf("Assertion passed\n");
 }
 
-bool getDatasetNames(char ***datasetNames, uint32_t *fileCount) {
+static bool getDatasetNames(char ***datasetNames, uint32_t *fileCount) {
     if (!listFilesInFolder(DATA_IN_PATH, datasetNames, fileCount)) {
         fprintf(stderr, "Error listing dataset names in folder %s\n", DATA_IN_PATH);
         return false;
@@ -72,7 +59,7 @@ bool getDatasetNames(char ***datasetNames, uint32_t *fileCount) {
     return true;
 }
 
-bool loadDataset(const char *datasetName, float **x, float **y, uint32_t *n) {
+static bool loadDataset(const char *datasetName, float **x, float **y, uint32_t *n) {
     if (!parseDatasetFile(datasetName, x, y, n)) {
         fprintf(stderr, "Error parsing points file\n");
         return false;
@@ -83,16 +70,18 @@ bool loadDataset(const char *datasetName, float **x, float **y, uint32_t *n) {
     return true;
 }
 
-double runDbscan(
+static double runDbscan(
     uint32_t *cluster,
     uint32_t *clusterCount,
-    const char *label,
+    const DbscanExecType execType,
     const dbscanFn dbscan,
     const float *x,
     const float *y,
     const uint32_t n,
-    const char *outputFile
+    const char *inputFile
 ) {
+    const char *label = execType == DbscanExecType::CPU ? "CPU" : "GPU";
+
     printf("Running %s DBSCAN...\n", label);
 
     const clock_t start = clock();
@@ -102,30 +91,24 @@ double runDbscan(
     const double elapsed = (double) (end - start) / CLOCKS_PER_SEC;
     printf("%s DBSCAN elapsed time: %f s\n", label, elapsed);
 
-    if (outputFile) {
-        writeDbscanFile(outputFile, x, y, cluster, n);
+    if (inputFile) {
+        if (char *outputFile = makeDbscanOutputName(inputFile, execType)) {
+            printf("Writing %s DBSCAN output to %s in %s\n", label, outputFile, DATA_OUT_PATH);
+            writeDbscanFile(DATA_OUT_PATH, outputFile, x, y, cluster, n);
+            free(outputFile);
+        }
     }
 
     return elapsed;
 }
 
-double runDbscan(
-    uint32_t *cluster,
-    uint32_t *clusterCount,
-    const char *label,
-    const dbscanFn dbscan,
-    const float *x,
-    const float *y,
-    const uint32_t n
-) {
-    return runDbscan(cluster, clusterCount, label, dbscan, x, y, n, nullptr);
-}
-
-bool hdDbscanRun(const char *datasetName) {
+static bool hdDbscanRun(const char *datasetName) {
     float *x, *y;
     uint32_t n;
 
-    if (!loadDataset(datasetName, &x, &y, &n)) {
+    const std::string path = std::string(DATA_IN_PATH) + datasetName;
+
+    if (!loadDataset(path.c_str(), &x, &y, &n)) {
         freePoints(&x, &y);
         return false;
     }
@@ -142,17 +125,19 @@ bool hdDbscanRun(const char *datasetName) {
     const double elapsed_cpu = runDbscan(
         cluster_cpu,
         &cluster_count_cpu,
-        "Sequential",
+        DbscanExecType::CPU,
         dbscanCpu,
-        x, y, n
+        x, y, n,
+        datasetName
     );
 
     const double elapsed_gpu = runDbscan(
         cluster_gpu,
         &cluster_count_gpu,
-        "Parallel",
+        DbscanExecType::GPU,
         dbscan_gpu,
-        x, y, n
+        x, y, n,
+        datasetName
     );
 
     printf("Speedup: %f\n", elapsed_cpu / elapsed_gpu);
@@ -164,7 +149,7 @@ bool hdDbscanRun(const char *datasetName) {
     return true;
 }
 
-int testGpu() {
+static int testGpu() {
     float *x, *y;
     uint32_t n;
 
@@ -186,10 +171,10 @@ int testGpu() {
     runDbscan(
         cluster_gpu,
         &cluster_count_gpu,
-        "Parallel",
+        DbscanExecType::GPU,
         dbscan_gpu,
         x, y, n,
-        TEST_OUTPUT_DBSCAN_GPU
+        TEST_INPUT_DATASET
     );
 
     freePoints(&x, &y);
@@ -206,11 +191,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    printf("Processing %d datasets\n", fileCount);
+
     uint32_t i = 0;
     while (i < fileCount) {
-        std::string path = std::string(DATA_IN_PATH) + datasetNames[i];
         printf("==================================================\n");
-        if (!hdDbscanRun(path.c_str())) {
+        if (!hdDbscanRun(datasetNames[i])) {
             break;
         }
         i++;

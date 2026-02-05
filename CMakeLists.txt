@@ -12,8 +12,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_library(cpu_dbscan STATIC
         src/cpu/cpu_dbscan.cpp
         src/common.h
-        src/helper.h
-)
+        src/helper.h)
 
 target_include_directories(cpu_dbscan PUBLIC src)
 
@@ -24,12 +23,10 @@ add_library(gpu_dbscan STATIC
         src/gpu/gpu_dbscan.cu
         src/common.h
         src/helper.h
-        src/cuda_helper.h
-)
+        src/cuda_helper.h)
 
 set_target_properties(gpu_dbscan PROPERTIES
-        CUDA_SEPARABLE_COMPILATION ON
-)
+        CUDA_SEPARABLE_COMPILATION ON)
 
 target_include_directories(gpu_dbscan PUBLIC src)
 
@@ -39,8 +36,7 @@ target_include_directories(gpu_dbscan PUBLIC src)
 add_library(io STATIC
         src/io.cpp
         src/common.h
-        src/helper.h
-)
+        src/helper.h)
 
 target_include_directories(io PUBLIC src)
 
