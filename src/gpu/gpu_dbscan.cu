@@ -64,7 +64,7 @@ __global__ void computeBounds(
 
     // Reducing within the warp using shuffle operations
     #pragma unroll
-    for (uint32_t offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+    for (uint32_t offset = warpSize / 2; offset > 0; offset >>= 1) {
         localMinX = fminf(localMinX, __shfl_down_sync(0xffffffff, localMinX, offset));
         localMaxX = fmaxf(localMaxX, __shfl_down_sync(0xffffffff, localMaxX, offset));
         localMinY = fminf(localMinY, __shfl_down_sync(0xffffffff, localMinY, offset));
@@ -89,6 +89,7 @@ __global__ void computeBounds(
         localMaxY = lane < numWarps ? sMaxY[lane] : -FLT_MAX;
 
         // Final reduction in the first warp
+        #pragma unroll
         for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
             localMinX = fminf(localMinX, __shfl_down_sync(0xffffffff, localMinX, offset));
             localMaxX = fmaxf(localMaxX, __shfl_down_sync(0xffffffff, localMaxX, offset));
@@ -188,7 +189,7 @@ __global__ void computeIsCoreArr(
         uint32_t count = 0;
 
         #pragma unroll
-        for (int idx = 0; idx < 9; ++idx) {
+        for (int idx = 0; idx < 9; idx++) {
             const int dx = idx / 3 - 1;
             const int dy = idx % 3 - 1;
 
@@ -310,7 +311,7 @@ __global__ void bfsExpand(
         );
 
         #pragma unroll
-        for (int idx = 0; idx < 9; ++idx) {
+        for (int idx = 0; idx < 9; idx++) {
             const int dx = idx / 3 - 1;
             const int dy = idx % 3 - 1;
 
