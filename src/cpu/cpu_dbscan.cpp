@@ -105,8 +105,6 @@ static bool initGrid(Grid *grid, const float *x, const float *y, const uint32_t 
  * @param grid Pointer to the precomputed grid.
  * @param i Index of the point for which neighbors are searched.
  * @return Number of neighbors found.
- *
- * @note The array neighbor must have [n] elements.
  */
 static uint32_t findNeighbors(
     uint32_t *neighbor,
@@ -152,21 +150,21 @@ static uint32_t findNeighbors(
 }
 
 /**
- * @brief Expands a cluster starting from a core point.
+ * @brief Expands a cluster starting from a root core point.
  * The function assigns the cluster label to all reachable points
- * starting from point `i` using a breadth-first expansion.
+ * starting from the root point using a breadth-first expansion.
  *
  * @param cluster Array storing cluster labels for each point.
  * @param queue Temporary queue used for breadth-first search.
- * @param neighbors Temporary buffer for neighbor indices.
+ * @param neighbors Buffer for neighbor indices, at the start it contains the
+ * neighbors of the root point.
  * @param x Pointer to the array of x coordinates corresponding to each point.
  * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param grid Pointer to the precomputed grid.
  * @param minPts Minimum points to form a core point.
  * @param clusterId ID of the cluster being expanded.
- * @param i Index of the core point to start the expansion.
- *
- * @note The arrays neighbor and queue must have [n] elements.
+ * @param root Index of the core point to start the expansion.
+ * @param rootDegree Number of neighbors of the root point.
  */
 static void expandCluster(
     uint32_t *cluster,
@@ -177,16 +175,26 @@ static void expandCluster(
     const Grid *grid,
     const uint32_t minPts,
     const uint32_t clusterId,
-    const uint32_t i
+    const uint32_t root,
+    const uint32_t rootDegree
 ) {
-    cluster[i] = clusterId;
+    cluster[root] = clusterId;
     uint32_t head = 0, tail = 0;
-    queue[tail++] = i;
+
+    // Add all neighbors of the root point to the queue
+    for (uint32_t k = 0; k < rootDegree; k++) {
+        const uint32_t r = neighbors[k];
+
+        if (cluster[r] == NO_CLUSTER_LABEL) {
+            cluster[r] = clusterId;
+            queue[tail++] = r;
+        }
+    }
 
     while (head < tail) {
         const uint32_t j = queue[head++];
-        const uint32_t degree = findNeighbors(neighbors, x, y, grid, j);
 
+        const uint32_t degree = findNeighbors(neighbors, x, y, grid, j);
         if (!isCore(degree, minPts)) continue;
 
         for (uint32_t k = 0; k < degree; k++) {
@@ -231,9 +239,9 @@ void dbscanCpu(
     }
 
     uint32_t *queue = (uint32_t *) malloc_s(n * sizeof(uint32_t));
-    uint32_t *neighbors = (uint32_t *) malloc_s(n * sizeof(uint32_t));
-    if (!queue || !neighbors) {
-        cleanup(&grid, &queue, &neighbors);
+    uint32_t *neighbor = (uint32_t *) malloc_s(n * sizeof(uint32_t));
+    if (!queue || !neighbor) {
+        cleanup(&grid, &queue, &neighbor);
         return;
     }
 
@@ -242,13 +250,16 @@ void dbscanCpu(
     for (uint32_t i = 0; i < n; i++) {
         if (cluster[i] != NO_CLUSTER_LABEL) continue;
 
-        const uint32_t degree = findNeighbors(neighbors, x, y, &grid, i);
+        const uint32_t degree = findNeighbors(neighbor, x, y, &grid, i);
         if (!isCore(degree, minPts)) continue;
 
-        expandCluster(cluster, queue, neighbors, x, y, &grid, minPts, ++clusterId, i);
+        expandCluster(
+            cluster, queue, neighbor, x, y,
+            &grid, minPts, ++clusterId, i, degree
+        );
     }
 
     *clusterCount = clusterId;
 
-    cleanup(&grid, &queue, &neighbors);
+    cleanup(&grid, &queue, &neighbor);
 }

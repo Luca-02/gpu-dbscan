@@ -53,7 +53,6 @@ char *makeDbscanOutputName(
     const char *filename = datasetName;
     const char *slash = strrchr(datasetName, '/');
     const char *backslash = strrchr(datasetName, '\\');
-
     if (slash || backslash) {
         const char *sep = slash > backslash ? slash : backslash;
         filename = sep + 1;
@@ -74,6 +73,70 @@ char *makeDbscanOutputName(
     snprintf(outName, outLen, "%s%s%s", execStr, middle, suffix);
 
     return outName;
+}
+
+/**
+ * @brief Creates the benchmark file name for the DBSCAN algorithm.
+ *
+ * @param eps The epsilon value used in the DBSCAN algorithm.
+ * @param minPts The minimum number of points required to form a cluster.
+ * @return The benchmark file name, or nullptr if an error occurs.
+ */
+char *makeBenchmarkFileName(const float eps, const uint32_t minPts) {
+    char epsBuf[32];
+
+    // Convert float to string
+    snprintf(epsBuf, sizeof(epsBuf), "%f", eps);
+
+    size_t len = strlen(epsBuf);
+
+    // Remove trailing zeros
+    while (len > 0 && epsBuf[len - 1] == '0') {
+        epsBuf[--len] = '\0';
+    }
+
+    // Remove trailing dot if present
+    if (len > 0 && epsBuf[len - 1] == '.') {
+        epsBuf[--len] = '\0';
+    }
+
+    // Replace remaining '.' with 'd'
+    for (char *p = epsBuf; *p; ++p) {
+        if (*p == '.') {
+            *p = 'd';
+            break;
+        }
+    }
+
+    const char *prefix = "benchmark_";
+    const char *epsSuffix = "eps_";
+    const char *ptsSuffix = "minpts";
+    const char *ext = ".csv";
+
+    // Calculate total length
+    const size_t totalLen =
+            strlen(prefix) +
+            strlen(epsBuf) +
+            strlen(epsSuffix) +
+            10 + // max digits for uint32
+            strlen(ptsSuffix) +
+            strlen(ext) +
+            1; // null terminator
+
+    char *fileName = (char *) malloc(totalLen);
+    if (!fileName) return nullptr;
+
+    // Construct final string
+    snprintf(fileName, totalLen, "%s%s%s%u%s%s",
+             prefix,
+             epsBuf,
+             epsSuffix,
+             minPts,
+             ptsSuffix,
+             ext
+    );
+
+    return fileName;
 }
 
 /**
@@ -147,7 +210,7 @@ bool parseDatasetFile(const char *filePath, float **x, float **y, uint32_t *n) {
     char line[512];
     FILE *file = fopen(filePath, "r");
     if (!file) {
-        fprintf(stderr, "Error opening file %s\n", filePath);
+        fprintf(stderr, "Error opening dataset file %s\n", filePath);
         return false;
     }
 
@@ -220,8 +283,6 @@ bool parseDatasetFile(const char *filePath, float **x, float **y, uint32_t *n) {
  * @param y Pointer to the array of y coordinates corresponding to each point.
  * @param cluster Pointer to the array of cluster IDs corresponding to each point.
  * @param n The number of points to write.
- *
- * @note The array points and cluster must have [n * 2] and [n] elements.
  */
 void writeDbscanFile(
     const char *folderPath,
@@ -239,7 +300,7 @@ void writeDbscanFile(
 
     FILE *file = fopen(path.c_str(), "w");
     if (!file) {
-        fprintf(stderr, "Error opening file %s\n", fileName);
+        fprintf(stderr, "Error opening dbscan output file %s\n", fileName);
         return;
     }
 
@@ -248,6 +309,53 @@ void writeDbscanFile(
 
     for (uint32_t i = 0; i < n; i++) {
         fprintf(file, "%.7f,%.7f,%u\n", x[i], y[i], cluster[i]);
+    }
+
+    fclose(file);
+}
+
+/**
+ * @brief Writes benchmark data to a CSV file.
+ *
+ * @param folderPath The path to the folder where the output file will be written.
+ * @param fileName The name of the benchmark output file.
+ * @param datasetNames The array of dataset file names.
+ * @param datasetNs The array of dataset point counts.
+ * @param cpuTimes The array of CPU computation times.
+ * @param gpuTimes The array of GPU computation times.
+ * @param speedups The array of speedups.
+ * @param benchmarkCount The number of benchmarks.
+ */
+void writeBenchmarkFile(
+    const char *folderPath,
+    const char *fileName,
+    char *const *datasetNames,
+    const uint32_t *datasetNs,
+    const double *cpuTimes,
+    const double *gpuTimes,
+    const double *speedups,
+    const uint32_t benchmarkCount
+) {
+    if (!std::filesystem::exists(folderPath)) {
+        std::filesystem::create_directory(folderPath);
+    }
+
+    const std::string path = std::string(folderPath) + fileName;
+
+    FILE *file = fopen(path.c_str(), "w");
+    if (!file) {
+        fprintf(stderr, "Error opening benchmark file\n");
+        return;
+    }
+
+    // Write header
+    fprintf(file, "dataset,n,cpu_time,gpu_time,speedup\n");
+
+    for (uint32_t i = 0; i < benchmarkCount; i++) {
+        fprintf(
+            file, "%s,%u,%.7f,%.7f,%.7f\n",
+            datasetNames[i], datasetNs[i], cpuTimes[i], gpuTimes[i], speedups[i]
+        );
     }
 
     fclose(file);

@@ -26,6 +26,15 @@ char *makeDbscanOutputName(
 );
 
 /**
+ * @brief Creates the benchmark file name for the DBSCAN algorithm.
+ *
+ * @param eps The epsilon value used in the DBSCAN algorithm.
+ * @param minPts The minimum number of points required to form a cluster.
+ * @return The benchmark file name, or nullptr if an error occurs.
+ */
+char *makeBenchmarkFileName(float eps, uint32_t minPts);
+
+/**
  * @brief Lists all files in a folder, allocating memory dynamically.
  *
  * @param folderPath The path to the folder.
@@ -65,5 +74,27 @@ void writeDbscanFile(
     uint32_t n
 );
 
-#endif
+/**
+* @brief Writes benchmark data to a CSV file.
+ *
+ * @param folderPath The path to the folder where the output file will be written.
+ * @param fileName The name of the benchmark output file.
+ * @param datasetNames The array of dataset file names.
+ * @param datasetNs The array of dataset point counts.
+ * @param cpuTimes The array of CPU computation times.
+ * @param gpuTimes The array of GPU computation times.
+ * @param speedups The array of speedups.
+ * @param benchmarkCount The number of benchmarks.
+ */
+void writeBenchmarkFile(
+    const char *folderPath,
+    const char *fileName,
+    char * const *datasetNames,
+    const uint32_t *datasetNs,
+    const double *cpuTimes,
+    const double *gpuTimes,
+    const double *speedups,
+    uint32_t benchmarkCount
+);
 
+#endif

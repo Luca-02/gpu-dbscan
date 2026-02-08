@@ -21,6 +21,22 @@ static void freeDatasetNames(char ***datasetNames, const uint32_t fileCount) {
     *datasetNames = nullptr;
 }
 
+static void freeBenchmark(
+    uint32_t **datasetNs,
+    double **cpuTimes,
+    double **gpuTimes,
+    double **speedups
+) {
+    if (*datasetNs) free(*datasetNs);
+    if (*cpuTimes) free(*cpuTimes);
+    if (*gpuTimes) free(*gpuTimes);
+    if (*speedups) free(*speedups);
+    datasetNs = nullptr;
+    cpuTimes = nullptr;
+    gpuTimes = nullptr;
+    speedups = nullptr;
+}
+
 static void freePoints(float **x, float **y) {
     if (*x) free(*x);
     if (*y) free(*y);
@@ -102,7 +118,13 @@ static double runDbscan(
     return elapsed;
 }
 
-static bool hdDbscanRun(const char *datasetName) {
+static bool hdDbscanRun(
+    uint32_t *ns,
+    double *cpuTime,
+    double *gpuTime,
+    double *speedup,
+    const char *datasetName
+) {
     float *x, *y;
     uint32_t n;
 
@@ -140,9 +162,19 @@ static bool hdDbscanRun(const char *datasetName) {
         datasetName
     );
 
-    printf("Speedup: %f\n", elapsed_cpu / elapsed_gpu);
+    const double calcSpeedup = elapsed_cpu / elapsed_gpu;
 
-    assertion(cluster_cpu, cluster_gpu, cluster_count_cpu, cluster_count_gpu, n);
+    printf("Speedup: %f\n", calcSpeedup);
+
+    assertion(
+        cluster_cpu, cluster_gpu,
+        cluster_count_cpu, cluster_count_gpu, n
+    );
+
+    *ns = n;
+    *cpuTime = elapsed_cpu;
+    *gpuTime = elapsed_gpu;
+    *speedup = calcSpeedup;
 
     freePoints(&x, &y);
     freeClusters(&cluster_cpu, &cluster_gpu);
@@ -153,7 +185,9 @@ static int testGpu() {
     float *x, *y;
     uint32_t n;
 
-    if (!loadDataset(TEST_INPUT_DATASET, &x, &y, &n)) {
+    const std::string dataset = std::string(DATA_IN_PATH) + TEST_INPUT_DATASET;
+
+    if (!loadDataset(dataset.c_str(), &x, &y, &n)) {
         freePoints(&x, &y);
         return EXIT_FAILURE;
     }
@@ -183,32 +217,58 @@ static int testGpu() {
 }
 
 int main() {
-    return testGpu();
-    // char **datasetNames;
-    // uint32_t fileCount;
-    //
-    // if (!getDatasetNames(&datasetNames, &fileCount)) {
-    //     freeDatasetNames(&datasetNames, fileCount);
-    //     return EXIT_FAILURE;
-    // }
-    //
-    // printf("Processing %d datasets\n", fileCount);
-    //
-    // uint32_t i = 0;
-    // while (i < fileCount) {
-    //     printf("==================================================\n");
-    //     if (!hdDbscanRun(datasetNames[i])) {
-    //         break;
-    //     }
-    //     i++;
-    // }
-    // printf("==================================================\n");
-    //
-    // freeDatasetNames(&datasetNames, fileCount);
-    //
-    // if (i != fileCount) {
-    //     return EXIT_FAILURE;
-    // }
-    //
-    // return EXIT_SUCCESS;
+    char **datasetNames;
+    uint32_t fileCount;
+
+    if (!getDatasetNames(&datasetNames, &fileCount)) {
+        freeDatasetNames(&datasetNames, fileCount);
+        return EXIT_FAILURE;
+    }
+
+    uint32_t *ns = (uint32_t *) malloc_s(fileCount * sizeof(uint32_t));
+    double *cpuTimes = (double *) malloc_s(fileCount * sizeof(double));
+    double *gpuTimes = (double *) malloc_s(fileCount * sizeof(double));
+    double *speedups = (double *) malloc_s(fileCount * sizeof(double));
+    if (!ns || !cpuTimes || !gpuTimes || !speedups) {
+        freeDatasetNames(&datasetNames, fileCount);
+        freeBenchmark(&ns, &cpuTimes, &gpuTimes, &speedups);
+        return EXIT_FAILURE;
+    }
+
+    printf("Processing %d datasets\n", fileCount);
+
+    uint32_t i = 0;
+    while (i < fileCount) {
+        printf("==================================================\n");
+        const bool success = hdDbscanRun(
+            &ns[i],
+            &cpuTimes[i],
+            &gpuTimes[i],
+            &speedups[i],
+            datasetNames[i]
+        );
+        if (!success) {
+            break;
+        }
+        i++;
+    }
+    printf("==================================================\n");
+
+    if (char *benchFileName = makeBenchmarkFileName(EPSILON, MIN_PTS)) {
+        writeBenchmarkFile(
+            BENCHMARK_PATH, benchFileName,
+            datasetNames, ns, cpuTimes, gpuTimes, speedups, fileCount
+        );
+        free(benchFileName);
+    }
+
+    freeDatasetNames(&datasetNames, fileCount);
+    freeBenchmark(&ns, &cpuTimes, &gpuTimes, &speedups);
+
+    if (i != fileCount) {
+        fprintf(stderr, "Processed %d datasets out of %d\n", i, fileCount);
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
 }

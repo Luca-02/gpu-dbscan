@@ -7,25 +7,53 @@
 #define MAX_BOUND_ITERATION 3
 #define MIN_BOUND_INPUT_SIZE 1024
 
-__constant__ float cXMin;
-__constant__ float cYMin;
-__constant__ uint32_t cGridWidth;
-__constant__ uint32_t cGridHeight;
-__constant__ uint32_t cCellCount;
 __constant__ uint32_t cN;
 __constant__ float cEps;
 __constant__ float cInvEps;
 __constant__ float cEps2;
 __constant__ uint32_t cMinPts;
+__constant__ float cXMin;
+__constant__ float cYMin;
+__constant__ uint32_t cGridWidth;
+__constant__ uint32_t cGridHeight;
+__constant__ uint32_t cCellCount;
 
+/**
+ * @brief Computes shared memory size required by computeBounds kernel.
+ *
+ * @param blockSize CUDA block size.
+ * @return Required shared memory in bytes.
+ */
 size_t smemComputeBounds(const uint32_t blockSize) {
     return 4 * blockSize / WARP_SIZE * sizeof(float);
 }
 
+/**
+ * @brief Computes shared memory size required by findNextCore kernel.
+ *
+ * @param blockSize CUDA block size.
+ * @return Required shared memory in bytes.
+ */
 size_t smemFindNextCore(const uint32_t blockSize) {
     return blockSize / WARP_SIZE * sizeof(int);
 }
 
+/**
+ * @brief Computes minimum and maximum x/y coordinates.
+ * Each thread processes a subset of points and computes local bounds.
+ * Warp-level shuffle reductions are used first, followed by a block-level
+ * reduction using shared memory.
+ *
+ * @param xMinOut Output array of per-block minimum x
+ * @param xMaxOut Output array of per-block maximum x
+ * @param yMinOut Output array of per-block minimum y
+ * @param yMaxOut Output array of per-block maximum y
+ * @param xMinIn  Input minimum x values
+ * @param xMaxIn  Input maximum x values
+ * @param yMinIn  Input minimum y values
+ * @param yMaxIn  Input maximum y values
+ * @param n Number of elements
+ */
 __global__ void computeBounds(
     float *xMinOut,
     float *xMaxOut,
@@ -107,6 +135,16 @@ __global__ void computeBounds(
     }
 }
 
+/**
+ * @brief Assigns each point to a spatial grid cell.
+ * For each point, computes the cell coordinates (cx, cy)
+ * and the linear cell index.
+ *
+ * @param cellId Output: cell ID for each point
+ * @param cellPoints Output: original point indices
+ * @param x x coordinates
+ * @param y y coordinates
+ */
 __global__ void computeBinning(
     uint32_t *cellId,
     uint32_t *cellPoints,
@@ -129,6 +167,16 @@ __global__ void computeBinning(
     }
 }
 
+/**
+ * @brief Computes start and end indices for each grid cell.
+ * Assumes that cellId is sorted.
+ * Warp-level shuffle operations are used to detect
+ * cell boundaries efficiently.
+ *
+ * @param cellStart Output: start index for each cell
+ * @param cellEnd Output: end index for each cell
+ * @param cellId Sorted cell IDs
+ */
 __global__ void buildBinExtreme(
     uint32_t *cellStart,
     uint32_t *cellEnd,
@@ -164,6 +212,20 @@ __global__ void buildBinExtreme(
     }
 }
 
+/**
+ * @brief Determines whether each point is a DBSCAN core point.
+ * For each point:
+ *  - examines the 9 neighboring grid cells
+ *  - counts neighbors within eps distance
+ *  - checks if count >= minPts
+ *
+ * @param isCoreArr Output: 1 if core point, 0 otherwise
+ * @param x x coordinates
+ * @param y y coordinates
+ * @param cellStart Cell start indices
+ * @param cellEnd   Cell end indices
+ * @param cellPoints Mapping from cells to point indices
+ */
 __global__ void computeIsCoreArr(
     uint8_t *isCoreArr,
     const float *x,
@@ -218,6 +280,17 @@ __global__ void computeIsCoreArr(
     }
 }
 
+/**
+ * @brief Finds the next unassigned core point.
+ * Each thread performs a local search starting from startIdx.
+ * Warp-level and block-level reductions are used to find
+ * the minimum valid core point index.
+ *
+ * @param nextCore Output: index of the next core point
+ * @param cluster Cluster labels
+ * @param isCoreArr Core point flags
+ * @param startIdx Starting index for the search
+ */
 __global__ void findNextCore(
     uint32_t *nextCore,
     const uint32_t *cluster,
@@ -230,6 +303,7 @@ __global__ void findNextCore(
     const uint32_t stride = blockDim.x * gridDim.x;
     const uint32_t lane = threadIdx.x % warpSize;
     const uint32_t wid = threadIdx.x / warpSize;
+    const uint32_t numWarps = blockDim.x / warpSize;
 
     uint32_t localMin = UINT_MAX;
 
@@ -257,20 +331,42 @@ __global__ void findNextCore(
 
     // Reduction via warp 0 to find the global minimum among the local minimums in shared memory
     if (wid == 0) {
-        uint32_t warpMin = lane < blockDim.x / warpSize ? warpMins[lane] : UINT_MAX;
+        localMin = lane < numWarps ? warpMins[lane] : UINT_MAX;
 
         #pragma unroll
         for (uint32_t offset = warpSize / 2; offset > 0; offset >>= 1) {
-            const uint32_t other = __shfl_down_sync(0xffffffff, warpMin, offset);
-            warpMin = min(warpMin, other);
+            const uint32_t other = __shfl_down_sync(0xffffffff, localMin, offset);
+            localMin = min(localMin, other);
         }
 
-        if (lane == 0 && warpMin != cN) {
-            atomicMin(nextCore, warpMin);
+        if (lane == 0) {
+            atomicMin(nextCore, localMin);
         }
     }
 }
 
+/**
+ * @brief Expands a cluster using parallel BFS.
+ * Starting from a root core point:
+ *  - assigns the cluster label to neighbors
+ *  - adds newly discovered core points to the frontier
+ * Expansion continues until the frontier becomes empty.
+ *
+ * @param cluster Cluster labels
+ * @param frontier Current frontier
+ * @param nextFrontier Next frontier
+ * @param nextFrontierSize Size of next frontier
+ * @param x x coordinates
+ * @param y y coordinates
+ * @param cellStart Cell start indices
+ * @param cellEnd Cell end indices
+ * @param cellPoints Mapping from cells to points
+ * @param isCoreArr Core point flags
+ * @param frontierSize Current frontier size
+ * @param clusterId Cluster ID
+ * @param level BFS level
+ * @param root Root core point
+ */
 __global__ void bfsExpand(
     uint32_t *cluster,
     uint32_t *frontier,
@@ -345,6 +441,23 @@ __global__ void bfsExpand(
     }
 }
 
+/**
+ * @brief Performs DBSCAN clustering on GPU for 2D points.
+ * Algorithm pipeline:
+ *  1. Copy input data and parameters to the GPU
+ *  2. Compute bounding box of input points
+ *  3. Build uniform spatial grid
+ *  4. Identify core points
+ *  5. Expand clusters using parallel BFS
+ *
+ * @param cluster Output array of cluster labels per point
+ * @param clusterCount Output: total number of clusters found
+ * @param x x coordinates of points
+ * @param y y coordinates of points
+ * @param n Number of points
+ * @param eps Neighborhood radius
+ * @param minPts Minimum number of neighbors to form a core point
+ */
 void dbscan_gpu(
     uint32_t *cluster,
     uint32_t *clusterCount,
@@ -436,7 +549,10 @@ void dbscan_gpu(
     float *hYMinPartial = (float *) malloc_s(boundGridSize * sizeof(float));
     float *hYMaxPartial = (float *) malloc_s(boundGridSize * sizeof(float));
     if (!hXMinPartial || !hXMaxPartial || !hYMinPartial || !hYMaxPartial) {
-        free(hXMinPartial); free(hXMaxPartial); free(hYMinPartial); free(hYMaxPartial);
+        free(hXMinPartial);
+        free(hXMaxPartial);
+        free(hYMinPartial);
+        free(hYMaxPartial);
         return;
     }
 
