@@ -109,6 +109,8 @@ void getOptimalKernelSize(
             0
         ));
 
+        *blockSize = optBlockSize;
+
         // Calculate blocks needed for a 1:1 mapping
         const int neededBlocks = (n + optBlockSize - 1) / optBlockSize;
 
@@ -129,9 +131,6 @@ void getOptimalKernelSize(
         // The saturation point is the number of SMs * max blocks the SM can handle.
         // This ensures we don't launch more blocks than the GPU can process in parallel.
         const int saturationBlock = numSMs * maxActiveBlocksPerSM;
-
-        // Finalize outputs
-        *blockSize = optBlockSize;
 
         // Use the saturation size, unless the input is so small it doesn't even fill the GPU once.
         *gridSize = min(neededBlocks, saturationBlock);
