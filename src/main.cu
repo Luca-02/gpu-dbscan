@@ -217,6 +217,8 @@ static int testGpu() {
 }
 
 int main() {
+    return testGpu();
+
     char **datasetNames;
     uint32_t fileCount;
 

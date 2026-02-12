@@ -6,7 +6,7 @@
 #define DATA_OUT_PATH "../data_out/"
 #define BENCHMARK_PATH "../benchmark/"
 
-#define TEST_INPUT_DATASET "dataset0_1000n_30c_1d0cs_0d03std_0d001nr.csv"
+#define TEST_INPUT_DATASET "dataset20_1000000n_30c_1d0cs_0d03std_0d001nr.csv"
 
 #define EPSILON 0.03
 #define MIN_PTS 8
