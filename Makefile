@@ -15,9 +15,9 @@ init:
 	pip install -r requirements.txt
 
 clean:
-	@read -p "Delete folders data_in/ and data_out/? [y/N] " ans; \
+	@read -p "Delete folders data_in/, data_out/ and benchmark/? [y/N] " ans; \
 	if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
-		rm -rf data_in/ data_out/; \
+		rm -rf data_in/ data_out/ benchmark/; \
 		echo "Folders deleted."; \
 	else \
 		echo "Operation cancelled."; \
